@@ -1,0 +1,49 @@
+-- fox-symdeps.nvim — symbol-intelligence HUD for C++ (v1: clangd-only core).
+-- setup(opts):
+--   key     = "<leader>dd"           -- trigger for the symbol HUD
+--   palette = { header, badge, title, border, winblend }  -- theme cohesion; bg stays transparent
+local M = {}
+
+local defaults = {
+  key = "<leader>dd",
+  palette = {},
+}
+
+-- one trigger → context → async clangd(layout, consumers) → HUD. (v1 hardcodes the two sections;
+-- the provider/registry abstraction arrives in W2 with the trader provider as the 2nd caller.)
+local function trigger()
+  local ctx = require("fox-symdeps.context").under_cursor()
+  if not ctx then
+    return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
+  end
+  local clangd = require("fox-symdeps.clangd")
+  local h = require("fox-symdeps.hud").open(ctx, M.config.palette)
+  clangd.layout(ctx, function(data, state) h:set_layout(data, state) end)
+  clangd.consumers(ctx, function(items, state) h:set_consumers(items, state) end)
+end
+
+local function set_highlights(p)
+  local function hl(name, spec) vim.api.nvim_set_hl(0, name, spec) end
+  hl("FoxSymdepsNormal", { bg = "none" }) -- transparent → inherits the terminal's opacity
+  hl("FoxSymdepsBorder", { fg = p.border or p.header or "#b8967a", bg = "none" })
+  hl("FoxSymdepsTitle", { fg = p.title or p.header or "#e0a0a0", bold = true, bg = "none" })
+  hl("FoxSymdepsHeader", { fg = p.header or "#e0a0a0", bold = true })
+  hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#a0907f" })
+end
+
+function M.setup(opts)
+  M.config = vim.tbl_deep_extend("force", defaults, opts or {})
+  set_highlights(M.config.palette)
+  -- re-apply on colorscheme change so a theme swap re-themes the HUD
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),
+    callback = function() set_highlights(M.config.palette) end,
+  })
+  vim.keymap.set("n", M.config.key, trigger, { desc = "fox-symdeps: symbol HUD" })
+  local ok, wk = pcall(require, "which-key")
+  if ok and wk.add then
+    pcall(wk.add, { { "<leader>d", group = "symdeps" } })
+  end
+end
+
+return M
