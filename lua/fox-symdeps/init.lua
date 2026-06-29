@@ -17,9 +17,13 @@ local function trigger()
     return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
   end
   local clangd = require("fox-symdeps.clangd")
-  local h = require("fox-symdeps.hud").open(ctx, M.config.palette)
+  local neotree = require("fox-symdeps.neotree")
+  local h = require("fox-symdeps.hud").open(ctx, M.config.palette, function() neotree.clear() end)
   clangd.layout(ctx, function(data, state) h:set_layout(data, state) end)
-  clangd.consumers(ctx, function(items, state) h:set_consumers(items, state) end)
+  clangd.consumers(ctx, function(items, state)
+    h:set_consumers(items, state)
+    if state == "ok" then neotree.set(items) end
+  end)
 end
 
 local function set_highlights(p)
@@ -29,6 +33,7 @@ local function set_highlights(p)
   hl("FoxSymdepsTitle", { fg = p.title or p.header or "#e0a0a0", bold = true, bg = "none" })
   hl("FoxSymdepsHeader", { fg = p.header or "#e0a0a0", bold = true })
   hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#a0907f" })
+  hl("FoxSymdepsTreeCount", { fg = p.header or "#e0a0a0", bold = true }) -- neo-tree consumer-count badge
 end
 
 function M.setup(opts)

@@ -7,10 +7,11 @@ local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "�
 local Hud = {}
 Hud.__index = Hud
 
-function M.open(ctx, palette)
+function M.open(ctx, palette, on_close)
   local self = setmetatable({
     ctx = ctx,
     palette = palette or {},
+    on_close = on_close,
     origin = vim.api.nvim_get_current_win(),
     layout = { state = "loading" },
     consumers = { state = "loading", items = {} },
@@ -156,6 +157,7 @@ function Hud:close()
   if self.win and vim.api.nvim_win_is_valid(self.win) then
     vim.api.nvim_win_close(self.win, true)
   end
+  if self.on_close then pcall(self.on_close) end
 end
 
 return M

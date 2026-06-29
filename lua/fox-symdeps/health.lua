@@ -30,6 +30,12 @@ function M.check()
   else
     h.info("which-key absent — group label skipped (harmless)")
   end
+
+  if pcall(require, "neo-tree") then
+    h.ok("neo-tree present — consumer-count tree badges enabled")
+  else
+    h.info("neo-tree absent — tree badges skipped (HUD still works)")
+  end
 end
 
 return M
