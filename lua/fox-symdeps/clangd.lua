@@ -69,4 +69,7 @@ function M.consumers(ctx, cb)
   end, ctx.bufnr)
 end
 
+-- exposed for unit tests (pure parse, no nvim needed); see tests/test_parse_layout.lua
+M._parse_layout = parse_layout
+
 return M
