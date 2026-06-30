@@ -80,6 +80,23 @@ function M.toggle(palette)
       end))
     end,
   })
+
+  -- close the panel when it would be the last window (so :q can quit nvim), and clean up if the
+  -- panel window itself is closed directly (e.g. :q! inside it)
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = P.aug,
+    callback = function()
+      vim.schedule(function()
+        if not P.hud then return end
+        if not vim.api.nvim_win_is_valid(P.hud.win) then return M.close() end
+        local others = 0
+        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+          if vim.api.nvim_win_is_valid(w) and w ~= P.hud.win then others = others + 1 end
+        end
+        if others == 0 then M.close() end
+      end)
+    end,
+  })
 end
 
 return M
