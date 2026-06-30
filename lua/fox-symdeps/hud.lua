@@ -100,8 +100,10 @@ function Hud:_window()
   map("<Left>", function() self:_set_collapsed(true) end)
   map("q", function() self:close() end)
   map("<Esc>", function() self:close() end)
+  map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> open/jump · q close", vim.log.levels.INFO)
+    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> open/jump · / filter · q close",
+      vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
     map(k, function() end)
@@ -162,6 +164,43 @@ function Hud:_layout_lines()
   return out
 end
 
+-- / prompt: filter the consumer tree by function/file/line (empty clears).
+function Hud:_filter()
+  local q = vim.fn.input("fox-symdeps /")
+  self.filter = (q ~= "" and q:lower()) or nil
+  self.sel = 1
+  self:render()
+end
+
+-- The tree to render: full, or (when /filter is active) only matching roles/files/entries,
+-- force-expanded so matches are visible.
+function Hud:_visible_tree()
+  local tree = self.consumers.tree or {}
+  if not self.filter then return tree end
+  local q, home, out = self.filter, vim.fn.getcwd(), {}
+  for _, role in ipairs(tree) do
+    local files = {}
+    for _, file in ipairs(role.files) do
+      local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
+      local matched = {}
+      for _, e in ipairs(file.entries) do
+        if (((e.scope or "") .. " " .. rel .. " " .. e.line):lower()):find(q, 1, true) then
+          matched[#matched + 1] = e
+        end
+      end
+      if #matched > 0 then
+        files[#files + 1] = { file = file.file, entries = matched, count = #matched, collapsed = false }
+      end
+    end
+    if #files > 0 then
+      local cnt = 0
+      for _, f in ipairs(files) do cnt = cnt + f.count end
+      out[#out + 1] = { label = role.label, role = role.role, files = files, count = cnt, collapsed = false }
+    end
+  end
+  return out
+end
+
 function Hud:render()
   if self.closed or not vim.api.nvim_buf_is_valid(self.buf) then return end
   local lines, hls = {}, {}
@@ -204,21 +243,24 @@ function Hud:render()
     add("")
   end
 
-  -- Consumers: collapsible role → file → function tree
+  -- Consumers: collapsible role → file → function tree (+ optional /filter)
   local c = self.consumers
+  local vtree = self:_visible_tree()
   local total = 0
-  for _, role in ipairs(c.tree or {}) do total = total + role.count end
+  for _, role in ipairs(vtree) do total = total + role.count end
   local count = c.state == "ok" and total or nil
-  add(" ◇ Consumers" .. (count and (" (" .. count .. ")") or ""), "FoxSymdepsHeader")
+  local chdr = " ◇ Consumers" .. (count and (" (" .. count .. ")") or "")
+  if self.filter then chdr = chdr .. "  /" .. self.filter end
+  add(chdr, "FoxSymdepsHeader")
   if c.state == "loading" then
     add("   " .. SPIN[self.spin] .. " finding…", "FoxSymdepsBadge")
   elseif c.state == "no_client" then
     add("   clangd not attached", "FoxSymdepsBadge")
   elseif not count or count == 0 then
-    add("   none", "FoxSymdepsBadge")
+    add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
   else
     local home = vim.fn.getcwd()
-    for _, role in ipairs(c.tree) do
+    for _, role in ipairs(vtree) do
       add_branch(("   %s %s (%d)"):format(role.collapsed and "▸" or "▾", role.label, role.count),
         "role", role, "FoxSymdepsHeader")
       if not role.collapsed then
