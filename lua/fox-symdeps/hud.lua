@@ -64,7 +64,7 @@ function Hud:_window()
   vim.bo[self.buf].bufhidden = "wipe"
   vim.bo[self.buf].filetype = "fox-symdeps"
   if self.mode == "panel" then
-    self.win = vim.api.nvim_open_win(self.buf, true, { split = "left", width = 52, style = "minimal" })
+    self.win = vim.api.nvim_open_win(self.buf, true, { split = "right", width = 52, style = "minimal" })
     vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. self.ctx.symbol .. " %*"
     vim.wo[self.win].winfixwidth = true
   else
@@ -258,6 +258,17 @@ function Hud:render()
 end
 
 -- <CR>: toggle a branch (role/file), or jump to a leaf entry.
+-- a window to jump into: the origin code window, else any non-panel window
+function Hud:_code_win()
+  if self.origin and vim.api.nvim_win_is_valid(self.origin) and self.origin ~= self.win then
+    return self.origin
+  end
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if w ~= self.win then return w end
+  end
+  return nil
+end
+
 function Hud:_activate()
   local it = self.items[self.sel]
   if not it then return end
@@ -265,9 +276,10 @@ function Hud:_activate()
     it.node.collapsed = not it.node.collapsed
     self:render()
   elseif it.loc then
-    self:close()
-    if vim.api.nvim_win_is_valid(self.origin) then
-      vim.api.nvim_set_current_win(self.origin)
+    local target = self:_code_win()
+    if self.mode == "float" then self:close() end -- panel stays docked; float dismisses
+    if target and vim.api.nvim_win_is_valid(target) then
+      vim.api.nvim_set_current_win(target)
     end
     vim.cmd("normal! m`") -- jumplist mark so <C-o> returns
     vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
