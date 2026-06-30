@@ -20,15 +20,28 @@ local function trigger()
   local neotree = require("fox-symdeps.neotree")
   local h = require("fox-symdeps.hud").open(ctx, M.config.palette, function() neotree.clear() end)
   clangd.layout(ctx, function(data, state) h:set_layout(data, state) end)
-  clangd.consumers(ctx, function(items, state)
-    if state == "ok" then
-      local classify = require("fox-symdeps.classify")
-      h:set_consumers(classify.group(classify.classify(items)), state)
-      neotree.set(items)
-    else
-      h:set_consumers(nil, state)
-    end
-  end)
+  if ctx.kind == "function" then
+    -- functions: who actually calls it (call hierarchy), not every textual mention
+    clangd.callers(ctx, function(items, state)
+      if state == "ok" then
+        h:set_consumers({ { label = "Called by", items = items } }, state)
+        neotree.set(items)
+      else
+        h:set_consumers(nil, state)
+      end
+    end)
+  else
+    -- types: classify each reference by role
+    clangd.consumers(ctx, function(items, state)
+      if state == "ok" then
+        local classify = require("fox-symdeps.classify")
+        h:set_consumers(classify.group(classify.classify(items)), state)
+        neotree.set(items)
+      else
+        h:set_consumers(nil, state)
+      end
+    end)
+  end
 end
 
 local function set_highlights(p)

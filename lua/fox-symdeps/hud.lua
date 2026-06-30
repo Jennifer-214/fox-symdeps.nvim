@@ -167,7 +167,8 @@ function Hud:render()
       add("   " .. g.label .. " (" .. #g.items .. ")", "FoxSymdepsBadge")
       for _, it in ipairs(g.items) do
         local rel = it.file:gsub("^" .. vim.pesc(home) .. "/", "")
-        add_item("     " .. rel .. ":" .. it.line, it)
+        local txt = it.name and (it.name .. "  " .. rel .. ":" .. it.line) or (rel .. ":" .. it.line)
+        add_item("     " .. txt, it)
       end
     end
   end
