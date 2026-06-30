@@ -1,16 +1,32 @@
 # fox-symdeps.nvim
 
-A symbol-intelligence HUD for C++. Put the cursor on a symbol, press `<leader>dd`, and a
-calm float shows what the compiler actually knows about it: memory **layout** from clangd
-(size / alignment / cache-line fit) and the real list of **consumers** (LSP references).
+A symbol-intelligence HUD for C++. Put the cursor on a struct or function, press
+`<leader>dd`, and a calm float shows what the compiler actually knows about it — memory
+layout, cache-line packing, and a role-classified map of what depends on it.
 
-Ground truth from your toolchain — not a guess. C++-only in v1.
+Ground truth from your toolchain (clangd + treesitter), not a guess. C++-only.
+
+## What it shows
+
+For the symbol under the cursor:
+
+- **Layout** (types) — size, alignment, and how it sits across 64 B cache lines: free
+  space, how many fit a line, and which vector register it fits (XMM / YMM / ZMM).
+- **Fields** (types) — a per-field cache-line map: each field's offset, size, and line,
+  flagging fields that **straddle** a line boundary and the padding gaps between them.
+- **Consumers** (types) — references **classified by role**: used as input (param),
+  returned, embedded (field), instantiated (local), or byte sites (sizeof) — because the
+  role is what tells you the *kind* of impact a change has.
+- **Called by** (functions) — the real callers, from clangd's call hierarchy, not every
+  textual mention.
+
+It's a picker: `j`/`k` snap between entries, the active one highlighted, `<CR>` jumps.
 
 ## Requirements
 
-- Neovim 0.11+ (developed on 0.12). Uses `vim.lsp.Client:request`, `vim.uv`, `vim.treesitter`.
-- `clangd` on `PATH`, attached to the buffer — i.e. a `compile_commands.json` in or above the project.
-- Optional: `which-key.nvim` — adds the `<leader>d` group label; harmless if absent.
+- Neovim 0.11+ (developed on 0.12). Uses `vim.lsp`, `vim.treesitter`, `vim.uv`.
+- `clangd` on `PATH`, attached to the buffer — a `compile_commands.json` in or above the project.
+- Optional: `which-key.nvim` (group label) and `neo-tree.nvim` (consumer-count tree badges). Both harmless if absent.
 
 ## Install
 
@@ -22,33 +38,31 @@ lazy.nvim:
   ft = { "c", "cpp" },
   opts = {
     -- key     = "<leader>dd",  -- trigger (default)
-    -- palette = { header = "#e0a0a0", badge = "#a0907f", title = "#e0a0a0",
-    --             border = "#b8967a", winblend = 0 },
+    -- palette = {              -- all optional; sensible warm defaults otherwise
+    --   header = "#e0a0a0", title = "#f0c0c0", border = "#b8967a",
+    --   badge = "#a0907f", selection = "#4a3340", winblend = 0,
+    -- },
   },
 }
 ```
 
-Local development — use a working checkout when it exists, fall back to the remote on
-machines that don't have it (same spec for both, flip nothing):
+Wiring it into a theme that already has a palette (pass your own tokens — local checkout,
+or drop `dir` for the published remote):
 
 ```lua
--- lazy setup opts:
-{ dev = { path = "~/code", fallback = true } }
-
--- plugin spec:
-{ "Jennyfirrr/fox-symdeps.nvim", dev = true, ft = { "c", "cpp" }, opts = { … } }
+{
+  dir = vim.fn.expand("~/code/fox-symdeps.nvim"),
+  name = "fox-symdeps",
+  ft = { "c", "cpp" },
+  opts = { palette = { header = P.peach, title = P.blush, border = P.peach,
+                       badge = P.warm, selection = P.sel } },
+}
 ```
 
 ## Usage
 
 - `<leader>dd` — open the HUD for the symbol under the cursor.
-- In the HUD: `j`/`k` scroll · `<CR>` jump to a consumer (drops a jumplist mark, so `<C-o>` returns) · `q`/`<Esc>` close.
-
-Sections:
-
-- **Layout** — size, alignment, and cache-line fit, parsed from clangd hover. Reads
-  `unavailable` calmly when clangd has nothing yet; it never throws.
-- **Consumers** — files that reference the symbol (LSP references), shown relative to cwd.
+- In the HUD: `j`/`k` select · `<CR>` jump to the selected entry (drops a jumplist mark, so `<C-o>` returns) · `q`/`<Esc>` close.
 
 ## Health
 
@@ -56,18 +70,18 @@ Sections:
 :checkhealth fox-symdeps
 ```
 
-Verifies `clangd` is on `PATH`, a client is attached, and a `compile_commands.json` is
-reachable from the cwd.
+Checks `clangd` on `PATH`, a client attached, a reachable `compile_commands.json`, and the
+optional which-key / neo-tree integrations.
 
 ## Theming
 
 The front-end ships no palette of its own — colors arrive through `opts.palette`, so it
-inherits whatever theme passes it tokens. The background stays transparent (it picks up
-the terminal's opacity), and highlights re-apply on `ColorScheme` so a theme swap re-themes
-the HUD.
+inherits whatever theme passes it tokens. The background stays transparent (it picks up the
+terminal's opacity), and highlights re-apply on `ColorScheme`.
 
 ## Status
 
-v1 — the portable clangd-only core (Layout + Consumers). Planned: neo-tree consumer-count
-decoration, a provider interface for project-specific sections (callers / byte-context /
-embedders via external tools), and parser/extractor unit tests.
+The clangd + treesitter core: enriched layout, the field cache-line map, role-classified
+consumers, callers via call hierarchy, neo-tree consumer-count badges, and a picker UI.
+Planned: a transitive call trace, a persistent live panel that updates as you edit, and an
+optional project-specific provider for richer byte-layout blast-radius analysis.
