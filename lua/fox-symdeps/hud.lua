@@ -8,11 +8,13 @@ local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "�
 local Hud = {}
 Hud.__index = Hud
 
-function M.open(ctx, palette, on_close)
+function M.open(ctx, palette, opts)
+  opts = opts or {}
   local self = setmetatable({
     ctx = ctx,
     palette = palette or {},
-    on_close = on_close,
+    mode = opts.mode or "float",
+    on_close = opts.on_close,
     origin = vim.api.nvim_get_current_win(),
     layout = { state = "loading" },
     fields = { state = "loading", items = {} },
@@ -23,7 +25,7 @@ function M.open(ctx, palette, on_close)
     closed = false,
   }, Hud)
   self:_window()
-  self:_hide_cursor()
+  if self.mode == "float" then self:_hide_cursor() end
   self:_spinner()
   self:render()
   return self
@@ -44,21 +46,40 @@ function Hud:set_fields(items, state)
   self:render()
 end
 
+-- Re-track (panel): point at a new symbol, reset sections to loading, re-render.
+function Hud:reset(ctx)
+  self.ctx = ctx
+  self.layout = { state = "loading" }
+  self.fields = { state = "loading", items = {} }
+  self.consumers = { state = "loading", tree = {} }
+  self.sel = 1
+  if self.mode == "panel" and self.win and vim.api.nvim_win_is_valid(self.win) then
+    vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. ctx.symbol .. " %*"
+  end
+  self:render()
+end
+
 function Hud:_window()
   self.buf = vim.api.nvim_create_buf(false, true)
   vim.bo[self.buf].bufhidden = "wipe"
   vim.bo[self.buf].filetype = "fox-symdeps"
-  self.win = vim.api.nvim_open_win(self.buf, true, {
-    relative = "cursor",
-    row = 1,
-    col = 2,
-    width = 72,
-    height = 22,
-    style = "minimal",
-    border = "rounded",
-    title = { { " " .. self.ctx.symbol .. " ", "FoxSymdepsTitle" } },
-    title_pos = "center",
-  })
+  if self.mode == "panel" then
+    self.win = vim.api.nvim_open_win(self.buf, true, { split = "left", width = 52, style = "minimal" })
+    vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. self.ctx.symbol .. " %*"
+    vim.wo[self.win].winfixwidth = true
+  else
+    self.win = vim.api.nvim_open_win(self.buf, true, {
+      relative = "cursor",
+      row = 1,
+      col = 2,
+      width = 72,
+      height = 22,
+      style = "minimal",
+      border = "rounded",
+      title = { { " " .. self.ctx.symbol .. " ", "FoxSymdepsTitle" } },
+      title_pos = "center",
+    })
+  end
   vim.wo[self.win].winblend = self.palette.winblend or 0
   vim.wo[self.win].cursorline = false
   vim.wo[self.win].wrap = false
@@ -85,11 +106,13 @@ function Hud:_window()
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
     map(k, function() end)
   end
-  vim.api.nvim_create_autocmd("BufLeave", {
-    buffer = self.buf,
-    once = true,
-    callback = function() self:close() end,
-  })
+  if self.mode == "float" then
+    vim.api.nvim_create_autocmd("BufLeave", {
+      buffer = self.buf,
+      once = true,
+      callback = function() self:close() end,
+    })
+  end
 end
 
 function Hud:_hide_cursor()

@@ -47,7 +47,7 @@ local function trigger()
     return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
   end
   local neotree = require("fox-symdeps.neotree")
-  local h = require("fox-symdeps.hud").open(ctx, M.config.palette, function() neotree.clear() end)
+  local h = require("fox-symdeps.hud").open(ctx, M.config.palette, { on_close = function() neotree.clear() end })
   M.inspect(ctx, h)
 end
 
@@ -71,6 +71,9 @@ function M.setup(opts)
     callback = function() set_highlights(M.config.palette) end,
   })
   vim.keymap.set("n", M.config.key, trigger, { desc = "fox-symdeps: symbol HUD" })
+  vim.keymap.set("n", "<leader>dD", function()
+    require("fox-symdeps.panel").toggle(M.config.palette)
+  end, { desc = "fox-symdeps: live panel (track symbol)" })
   local ok, wk = pcall(require, "which-key")
   if ok and wk.add then
     pcall(wk.add, { { "<leader>d", group = "symdeps" } })
