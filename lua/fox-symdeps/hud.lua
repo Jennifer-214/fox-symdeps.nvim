@@ -15,7 +15,7 @@ function M.open(ctx, palette, on_close)
     on_close = on_close,
     origin = vim.api.nvim_get_current_win(),
     layout = { state = "loading" },
-    consumers = { state = "loading", items = {} },
+    consumers = { state = "loading", groups = {} },
     items = {}, -- selectable rows: { bufline (1-based), loc = { file, line } }
     sel = 1,
     spin = 1,
@@ -33,8 +33,8 @@ function Hud:set_layout(data, state)
   self:render()
 end
 
-function Hud:set_consumers(items, state)
-  self.consumers = { state = state, items = items or {} }
+function Hud:set_consumers(groups, state)
+  self.consumers = { state = state, groups = groups or {} }
   self:render()
 end
 
@@ -143,19 +143,24 @@ function Hud:render()
   add("")
 
   local c = self.consumers
-  local count = c.state == "ok" and #c.items or nil
+  local total = 0
+  for _, g in ipairs(c.groups or {}) do total = total + #g.items end
+  local count = c.state == "ok" and total or nil
   add(" ◇ Consumers" .. (count and (" (" .. count .. ")") or ""), "FoxSymdepsHeader")
   if c.state == "loading" then
     add("   " .. SPIN[self.spin] .. " finding…", "FoxSymdepsBadge")
   elseif c.state == "no_client" then
     add("   clangd not attached", "FoxSymdepsBadge")
-  elseif count == 0 then
+  elseif not count or count == 0 then
     add("   none", "FoxSymdepsBadge")
   else
     local home = vim.fn.getcwd()
-    for _, it in ipairs(c.items) do
-      local rel = it.file:gsub("^" .. vim.pesc(home) .. "/", "")
-      add_item("   " .. rel .. ":" .. it.line, it)
+    for _, g in ipairs(c.groups) do
+      add("   " .. g.label .. " (" .. #g.items .. ")", "FoxSymdepsBadge")
+      for _, it in ipairs(g.items) do
+        local rel = it.file:gsub("^" .. vim.pesc(home) .. "/", "")
+        add_item("     " .. rel .. ":" .. it.line, it)
+      end
     end
   end
 

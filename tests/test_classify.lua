@@ -1,0 +1,35 @@
+-- Unit tests for treesitter role-classification of reference sites. Needs the cpp parser
+-- on rtp: run from the repo root with
+--   nvim --headless --clean --cmd "set rtp+=$HOME/.local/share/nvim/site" -l tests/test_classify.lua
+package.path = "./lua/?.lua;" .. package.path
+local role = require("fox-symdeps.classify")._role_at
+
+local lines = {
+  "struct Foo { int a; };",                  -- 0
+  "void take(Foo *f) {}",                     -- 1  Foo = param          → input
+  "Foo make() { Foo x; return x; }",          -- 2  1st Foo = return type → returned ; 2nd Foo = local → instantiated
+  "struct Bar { Foo member; };",              -- 3  Foo = field           → embedded
+  "void use() { unsigned n = sizeof(Foo); }", -- 4  Foo in sizeof         → byte
+}
+local content = table.concat(lines, "\n")
+
+local pass, fail = 0, 0
+local function col(row, occ)
+  local line, s = lines[row + 1], 0
+  for _ = 1, (occ or 1) do s = line:find("Foo", s + 1, true) end
+  return s and (s - 1) or 0
+end
+local function eq(row, occ, want)
+  local got = role(content, row, col(row, occ))
+  if got == want then pass = pass + 1
+  else fail = fail + 1; io.write(("  ✗ row %d occ %d: got %s want %s\n"):format(row, occ or 1, got, want)) end
+end
+
+eq(1, 1, "input")        -- void take(Foo *f)
+eq(2, 1, "returned")     -- Foo make()
+eq(2, 2, "instantiated") -- Foo x;
+eq(3, 1, "embedded")     -- Foo member;
+eq(4, 1, "byte")         -- sizeof(Foo)
+
+io.write(("\nclassify: %d passed, %d failed\n"):format(pass, fail))
+os.exit(fail == 0 and 0 or 1)

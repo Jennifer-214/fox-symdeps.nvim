@@ -63,6 +63,7 @@ function M.consumers(ctx, cb)
       items[#items + 1] = {
         file = vim.uri_to_fname(loc.uri or loc.targetUri),
         line = range.start.line + 1,
+        col = range.start.character,
       }
     end
     cb(items, "ok")
