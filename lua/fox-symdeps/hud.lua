@@ -112,16 +112,24 @@ function Hud:_spinner()
   end))
 end
 
-function Hud:_badge_line()
+-- One or more detail lines for the Layout section. Beyond size/align: cache-line span +
+-- free space, plus density (how many fit a 64 B line) and which vector register the type
+-- fits — the readouts that matter for hot-path packing / SWAR.
+function Hud:_layout_lines()
   local d = self.layout
-  if d.state == "loading" then return SPIN[self.spin] .. " sizing…" end
-  if d.state == "no_client" then return "clangd not attached" end
-  if d.state ~= "ok" or not d.data or not d.data.size then return "layout unavailable" end
-  local sz = d.data.size
-  local nlines = math.max(1, math.ceil(sz / 64))
-  local fit = nlines == 1 and ("fits 1 cache line · " .. (64 - sz) .. " B slack")
-    or ("spans " .. nlines .. " cache lines")
-  return ("size %d B · align %d · %s"):format(sz, d.data.align or 0, fit)
+  if d.state == "loading" then return { SPIN[self.spin] .. " sizing…" } end
+  if d.state == "no_client" then return { "clangd not attached" } end
+  if d.state ~= "ok" or not d.data or not d.data.size then return { "layout unavailable" } end
+  local sz, al = d.data.size, d.data.align or 0
+  local out = { ("size %d B · align %d"):format(sz, al) }
+  if sz <= 64 then
+    local reg = sz <= 16 and "XMM 128b" or (sz <= 32 and "YMM 256b" or "ZMM 512b")
+    out[#out + 1] = ("fits 1 cache line · %d B slack · %d/line · → %s"):format(64 - sz, math.floor(64 / sz), reg)
+  else
+    local lines = math.ceil(sz / 64)
+    out[#out + 1] = ("spans %d cache lines · %d B free in line %d"):format(lines, lines * 64 - sz, lines)
+  end
+  return out
 end
 
 function Hud:render()
@@ -139,7 +147,7 @@ function Hud:render()
   end
 
   add(" ◆ Layout", "FoxSymdepsHeader")
-  add("   " .. self:_badge_line(), "FoxSymdepsBadge")
+  for _, l in ipairs(self:_layout_lines()) do add("   " .. l, "FoxSymdepsBadge") end
   add("")
 
   local c = self.consumers
