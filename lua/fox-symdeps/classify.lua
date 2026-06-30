@@ -40,6 +40,32 @@ local function classify_node(node)
   return "other"
 end
 
+-- the name of the nearest enclosing function/struct/class — the "who uses it" at level 3
+local function enclosing_name(node, content)
+  local n = node
+  while n do
+    local t = n:type()
+    if t == "struct_specifier" or t == "class_specifier" or t == "union_specifier" then
+      local nm = n:field("name")[1]
+      return nm and vim.treesitter.get_node_text(nm, content) or nil
+    end
+    if t == "function_definition" then
+      local d = n:field("declarator")[1]
+      while d do
+        local dt = d:type()
+        if dt == "identifier" or dt == "field_identifier" or dt == "qualified_identifier"
+          or dt == "destructor_name" or dt == "operator_name" then
+          return vim.treesitter.get_node_text(d, content)
+        end
+        d = d:field("declarator")[1]
+      end
+      return nil
+    end
+    n = n:parent()
+  end
+  return nil
+end
+
 local function role_at(content, row0, col0)
   local okp, parser = pcall(vim.treesitter.get_string_parser, content, "cpp")
   if not okp or not parser then return "other" end
@@ -59,22 +85,25 @@ function M.classify(items)
     table.insert(by_file[it.file], it)
   end
   for file, its in pairs(by_file) do
-    local root
+    local root, content
     local ok, lines = pcall(vim.fn.readfile, file)
     if ok and lines then
-      local okp, parser = pcall(vim.treesitter.get_string_parser, table.concat(lines, "\n"), "cpp")
+      content = table.concat(lines, "\n")
+      local okp, parser = pcall(vim.treesitter.get_string_parser, content, "cpp")
       if okp and parser then
         local trees = parser:parse()
         root = trees and trees[1] and trees[1]:root()
       end
     end
     for _, it in ipairs(its) do
-      local role = "other"
+      it.role = "other"
       if root and it.col then
         local node = root:named_descendant_for_range(it.line - 1, it.col, it.line - 1, it.col)
-        if node then role = classify_node(node) end
+        if node then
+          it.role = classify_node(node)
+          it.scope = enclosing_name(node, content)
+        end
       end
-      it.role = role
     end
   end
   return items
@@ -96,5 +125,48 @@ function M.group(items)
 end
 
 M._role_at = role_at -- exposed for tests
+
+function M._scope_at(content, row0, col0)
+  local okp, parser = pcall(vim.treesitter.get_string_parser, content, "cpp")
+  if not okp or not parser then return nil end
+  local trees = parser:parse()
+  local root = trees and trees[1] and trees[1]:root()
+  if not root then return nil end
+  local node = root:named_descendant_for_range(row0, col0, row0, col0)
+  return node and enclosing_name(node, content) or nil
+end
+
+-- Build a role → file → entries tree for the collapsible HUD. Level-3 label = it.scope
+-- (enclosing fn/struct) when present, else the line. Files with > THRESH refs start collapsed.
+local TREE_THRESH = 5
+function M.tree(items)
+  local roles = {}
+  for _, it in ipairs(items or {}) do
+    local r = it.role or "other"
+    roles[r] = roles[r] or { byfile = {}, order = {} }
+    if not roles[r].byfile[it.file] then
+      roles[r].byfile[it.file] = { file = it.file, entries = {} }
+      roles[r].order[#roles[r].order + 1] = it.file
+    end
+    table.insert(roles[r].byfile[it.file].entries, it)
+  end
+  local out = {}
+  for _, r in ipairs(ROLE_ORDER) do
+    if roles[r] then
+      local files, count = {}, 0
+      for _, fpath in ipairs(roles[r].order) do
+        local fe = roles[r].byfile[fpath]
+        table.sort(fe.entries, function(a, b) return a.line < b.line end)
+        fe.count = #fe.entries
+        fe.collapsed = fe.count > TREE_THRESH
+        count = count + fe.count
+        files[#files + 1] = fe
+      end
+      table.sort(files, function(a, b) return a.file < b.file end)
+      out[#out + 1] = { label = ROLE_LABEL[r], role = r, count = count, collapsed = false, files = files }
+    end
+  end
+  return out
+end
 
 return M

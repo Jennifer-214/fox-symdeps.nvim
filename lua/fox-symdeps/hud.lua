@@ -1,6 +1,6 @@
--- The calm float HUD — a picker over the symbol's layout + consumers. j/k snap between
--- selectable entries (headers/blanks skipped), the active one gets a warm highlight + ▸,
--- the text cursor is hidden, <CR> jumps (jumplist-friendly), q/<Esc> closes. Async-filled.
+-- The calm float HUD — a collapsible picker over the symbol's layout + a role→file→function
+-- consumer tree. j/k select · l/h expand/collapse · <CR> opens a branch or jumps a leaf · q closes.
+-- The text cursor is hidden so it reads as a menu, not a buffer. Async-filled.
 local M = {}
 local NS = vim.api.nvim_create_namespace("fox_symdeps_hud")
 local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
@@ -16,8 +16,8 @@ function M.open(ctx, palette, on_close)
     origin = vim.api.nvim_get_current_win(),
     layout = { state = "loading" },
     fields = { state = "loading", items = {} },
-    consumers = { state = "loading", groups = {} },
-    items = {}, -- selectable rows: { bufline (1-based), loc = { file, line } }
+    consumers = { state = "loading", tree = {} },
+    items = {}, -- selectable rows: { bufline, kind, node? (branch), loc? (leaf) }
     sel = 1,
     spin = 1,
     closed = false,
@@ -34,8 +34,8 @@ function Hud:set_layout(data, state)
   self:render()
 end
 
-function Hud:set_consumers(groups, state)
-  self.consumers = { state = state, groups = groups or {} }
+function Hud:set_consumers(tree, state)
+  self.consumers = { state = state, tree = tree or {} }
   self:render()
 end
 
@@ -52,15 +52,15 @@ function Hud:_window()
     relative = "cursor",
     row = 1,
     col = 2,
-    width = 66,
-    height = 18,
+    width = 72,
+    height = 22,
     style = "minimal",
     border = "rounded",
     title = { { " " .. self.ctx.symbol .. " ", "FoxSymdepsTitle" } },
     title_pos = "center",
   })
   vim.wo[self.win].winblend = self.palette.winblend or 0
-  vim.wo[self.win].cursorline = false -- selection is an explicit highlight, not the cursor line
+  vim.wo[self.win].cursorline = false
   vim.wo[self.win].wrap = false
   vim.wo[self.win].winhighlight =
     "Normal:FoxSymdepsNormal,FloatBorder:FoxSymdepsBorder,FloatTitle:FoxSymdepsTitle"
@@ -72,14 +72,17 @@ function Hud:_window()
   map("k", function() self:_move(-1) end)
   map("<Down>", function() self:_move(1) end)
   map("<Up>", function() self:_move(-1) end)
-  map("<CR>", function() self:_jump() end)
+  map("<CR>", function() self:_activate() end)
+  map("l", function() self:_set_collapsed(false) end)
+  map("<Right>", function() self:_set_collapsed(false) end)
+  map("h", function() self:_set_collapsed(true) end)
+  map("<Left>", function() self:_set_collapsed(true) end)
   map("q", function() self:close() end)
   map("<Esc>", function() self:close() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · <CR> jump · q/<Esc> close", vim.log.levels.INFO)
+    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> open/jump · q close", vim.log.levels.INFO)
   end)
-  -- keep it a picker, not an editor: neutralize stray motions/edits
-  for _, k in ipairs({ "h", "l", "<Left>", "<Right>", "i", "a", "o", "x", "dd", "p" }) do
+  for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
     map(k, function() end)
   end
   vim.api.nvim_create_autocmd("BufLeave", {
@@ -89,8 +92,6 @@ function Hud:_window()
   })
 end
 
--- Hide the text cursor while the float is focused (restored on close) so it reads as a
--- menu, not a text buffer. guicursor is global; we save + restore around the float.
 function Hud:_hide_cursor()
   if not (vim.o.guicursor or ""):find("FoxSymdepsHiddenCursor", 1, true) then
     self.saved_guicursor = vim.o.guicursor
@@ -119,9 +120,8 @@ function Hud:_spinner()
   end))
 end
 
--- One or more detail lines for the Layout section. Beyond size/align: cache-line span +
--- free space, plus density (how many fit a 64 B line) and which vector register the type
--- fits — the readouts that matter for hot-path packing / SWAR.
+-- Layout detail lines: size/align + cache-line span/slack + density (per 64 B line) + vector
+-- register fit (XMM/YMM/ZMM) — the readouts that matter for hot-path packing / SWAR.
 function Hud:_layout_lines()
   local d = self.layout
   if d.state == "loading" then return { SPIN[self.spin] .. " sizing…" } end
@@ -148,9 +148,11 @@ function Hud:render()
     if hl then hls[#lines] = hl end
     return #lines
   end
-  local function add_item(text, loc)
-    local ln = add(text)
-    self.items[#self.items + 1] = { bufline = ln, loc = loc }
+  local function add_branch(text, kind, node, hl)
+    self.items[#self.items + 1] = { bufline = add(text, hl), kind = kind, node = node }
+  end
+  local function add_leaf(text, loc)
+    self.items[#self.items + 1] = { bufline = add(text), kind = "entry", loc = loc }
   end
 
   add(" ◆ Layout", "FoxSymdepsHeader")
@@ -179,9 +181,10 @@ function Hud:render()
     add("")
   end
 
+  -- Consumers: collapsible role → file → function tree
   local c = self.consumers
   local total = 0
-  for _, g in ipairs(c.groups or {}) do total = total + #g.items end
+  for _, role in ipairs(c.tree or {}) do total = total + role.count end
   local count = c.state == "ok" and total or nil
   add(" ◇ Consumers" .. (count and (" (" .. count .. ")") or ""), "FoxSymdepsHeader")
   if c.state == "loading" then
@@ -192,12 +195,21 @@ function Hud:render()
     add("   none", "FoxSymdepsBadge")
   else
     local home = vim.fn.getcwd()
-    for _, g in ipairs(c.groups) do
-      add("   " .. g.label .. " (" .. #g.items .. ")", "FoxSymdepsBadge")
-      for _, it in ipairs(g.items) do
-        local rel = it.file:gsub("^" .. vim.pesc(home) .. "/", "")
-        local txt = it.name and (it.name .. "  " .. rel .. ":" .. it.line) or (rel .. ":" .. it.line)
-        add_item("     " .. txt, it)
+    for _, role in ipairs(c.tree) do
+      add_branch(("   %s %s (%d)"):format(role.collapsed and "▸" or "▾", role.label, role.count),
+        "role", role, "FoxSymdepsHeader")
+      if not role.collapsed then
+        for _, file in ipairs(role.files) do
+          local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
+          add_branch(("     %s %s (%d)"):format(file.collapsed and "▸" or "▾", rel, file.count),
+            "file", file, "FoxSymdepsBadge")
+          if not file.collapsed then
+            for _, e in ipairs(file.entries) do
+              add_leaf("         " .. (e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)),
+                { file = file.file, line = e.line })
+            end
+          end
+        end
       end
     end
   end
@@ -212,28 +224,41 @@ function Hud:render()
     vim.api.nvim_buf_set_extmark(self.buf, NS, ln - 1, 0, { line_hl_group = hl })
   end
 
-  -- selection: warm bar + ▸ marker on the active item, cursor parked there for scroll
+  -- selection: a warm bar on the active row, cursor parked there for scroll (cursor hidden)
   if #self.items > 0 then
     local line = self.items[self.sel].bufline
     vim.api.nvim_buf_set_extmark(self.buf, NS, line - 1, 0, { line_hl_group = "FoxSymdepsSelection" })
-    vim.api.nvim_buf_set_extmark(self.buf, NS, line - 1, 0,
-      { virt_text = { { " ▸", "FoxSymdepsHeader" } }, virt_text_pos = "overlay" })
     if vim.api.nvim_win_is_valid(self.win) then
       pcall(vim.api.nvim_win_set_cursor, self.win, { line, 0 })
     end
   end
 end
 
-function Hud:_jump()
+-- <CR>: toggle a branch (role/file), or jump to a leaf entry.
+function Hud:_activate()
   local it = self.items[self.sel]
-  if not (it and it.loc) then return end
-  self:close()
-  if vim.api.nvim_win_is_valid(self.origin) then
-    vim.api.nvim_set_current_win(self.origin)
+  if not it then return end
+  if it.node then
+    it.node.collapsed = not it.node.collapsed
+    self:render()
+  elseif it.loc then
+    self:close()
+    if vim.api.nvim_win_is_valid(self.origin) then
+      vim.api.nvim_set_current_win(self.origin)
+    end
+    vim.cmd("normal! m`") -- jumplist mark so <C-o> returns
+    vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
+    pcall(vim.api.nvim_win_set_cursor, 0, { it.loc.line, 0 })
   end
-  vim.cmd("normal! m`") -- jumplist mark so <C-o> returns
-  vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
-  pcall(vim.api.nvim_win_set_cursor, 0, { it.loc.line, 0 })
+end
+
+-- l / h: expand / collapse the selected branch.
+function Hud:_set_collapsed(want)
+  local it = self.items[self.sel]
+  if it and it.node then
+    it.node.collapsed = want
+    self:render()
+  end
 end
 
 function Hud:close()

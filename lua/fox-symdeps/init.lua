@@ -24,7 +24,9 @@ local function trigger()
     -- functions: who actually calls it (call hierarchy), not every textual mention
     clangd.callers(ctx, function(items, state)
       if state == "ok" then
-        h:set_consumers({ { label = "Called by", items = items } }, state)
+        local classify = require("fox-symdeps.classify")
+        for _, it in ipairs(items) do it.role = "called"; it.scope = it.name end
+        h:set_consumers(classify.tree(items), state)
         neotree.set(items)
       else
         h:set_consumers(nil, state)
@@ -35,7 +37,7 @@ local function trigger()
     clangd.consumers(ctx, function(items, state)
       if state == "ok" then
         local classify = require("fox-symdeps.classify")
-        h:set_consumers(classify.group(classify.classify(items)), state)
+        h:set_consumers(classify.tree(classify.classify(items)), state)
         neotree.set(items)
       else
         h:set_consumers(nil, state)
