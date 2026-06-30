@@ -15,6 +15,7 @@ function M.open(ctx, palette, on_close)
     on_close = on_close,
     origin = vim.api.nvim_get_current_win(),
     layout = { state = "loading" },
+    fields = { state = "loading", items = {} },
     consumers = { state = "loading", groups = {} },
     items = {}, -- selectable rows: { bufline (1-based), loc = { file, line } }
     sel = 1,
@@ -35,6 +36,11 @@ end
 
 function Hud:set_consumers(groups, state)
   self.consumers = { state = state, groups = groups or {} }
+  self:render()
+end
+
+function Hud:set_fields(items, state)
+  self.fields = { state = state, items = items or {} }
   self:render()
 end
 
@@ -106,7 +112,8 @@ function Hud:_spinner()
   self.timer:start(80, 80, vim.schedule_wrap(function()
     if self.closed then return end
     self.spin = (self.spin % #SPIN) + 1
-    if self.layout.state == "loading" or self.consumers.state == "loading" then
+    if self.layout.state == "loading" or self.consumers.state == "loading"
+      or (self.fields and self.fields.state == "loading") then
       self:render()
     end
   end))
@@ -149,6 +156,28 @@ function Hud:render()
   add(" ◆ Layout", "FoxSymdepsHeader")
   for _, l in ipairs(self:_layout_lines()) do add("   " .. l, "FoxSymdepsBadge") end
   add("")
+
+  -- Fields cache-line map (types only)
+  local fs = self.fields
+  if self.ctx.kind ~= "function" and fs and (fs.state == "loading" or (fs.state == "ok" and #fs.items > 0)) then
+    add(" ▪ Fields" .. (fs.state == "ok" and (" (" .. #fs.items .. ")") or ""), "FoxSymdepsHeader")
+    if fs.state == "loading" then
+      add("   " .. SPIN[self.spin] .. " mapping…", "FoxSymdepsBadge")
+    else
+      local prev_end = 0
+      for _, f in ipairs(fs.items) do
+        if f.offset > prev_end then
+          add(("       · %d B padding"):format(f.offset - prev_end), "FoxSymdepsBadge")
+        end
+        local lo = math.floor(f.offset / 64)
+        local hi = math.floor((f.offset + math.max(f.size, 1) - 1) / 64)
+        local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ⚠ straddles")
+        add(("     @%-4d %-14s %3d B  %s"):format(f.offset, f.name, f.size, lstr), "FoxSymdepsBadge")
+        prev_end = f.offset + f.size
+      end
+    end
+    add("")
+  end
 
   local c = self.consumers
   local total = 0

@@ -41,6 +41,7 @@ local function trigger()
         h:set_consumers(nil, state)
       end
     end)
+    require("fox-symdeps.layout").fields(ctx, function(items, state) h:set_fields(items, state) end)
   end
 end
 
