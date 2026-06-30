@@ -41,6 +41,15 @@ function M.inspect(ctx, h)
   end
 end
 
+-- Lighter re-fetch for live-edit: just layout + field map (what changes when you edit a
+-- struct's body). Consumers are left intact — an in-struct edit doesn't change who uses it.
+function M.refresh_layout(ctx, h)
+  require("fox-symdeps.clangd").layout(ctx, function(data, state) h:set_layout(data, state) end)
+  if ctx.kind ~= "function" then
+    require("fox-symdeps.layout").fields(ctx, function(items, state) h:set_fields(items, state) end)
+  end
+end
+
 local function trigger()
   local ctx = require("fox-symdeps.context").under_cursor()
   if not ctx then

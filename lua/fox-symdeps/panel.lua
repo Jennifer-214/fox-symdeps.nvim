@@ -38,6 +38,7 @@ function M.toggle(palette)
     mode = "panel",
     on_close = function()
       if P.aug then pcall(vim.api.nvim_del_augroup_by_id, P.aug); P.aug = nil end
+      if P.edit_timer then pcall(function() P.edit_timer:stop(); P.edit_timer:close() end); P.edit_timer = nil end
       P.hud = nil
       P.pinned = false
     end,
@@ -58,6 +59,24 @@ function M.toggle(palette)
         P.hud:reset(c)
         require("fox-symdeps").inspect(c, P.hud)
       end
+    end,
+  })
+
+  -- live-edit: debounced (400ms) re-fetch of the tracked symbol's LAYOUT when a code buffer
+  -- changes, so size / cache-density / straddle recompute as you edit (consumers left intact)
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = P.aug,
+    callback = function()
+      if not P.hud or P.hud.closed then return end
+      if vim.api.nvim_get_current_win() == P.hud.win then return end
+      if P.edit_timer then P.edit_timer:stop(); P.edit_timer:close() end
+      P.edit_timer = vim.uv.new_timer()
+      P.edit_timer:start(400, 0, vim.schedule_wrap(function()
+        if P.edit_timer then P.edit_timer:stop(); P.edit_timer:close(); P.edit_timer = nil end
+        if P.hud and not P.hud.closed then
+          require("fox-symdeps").refresh_layout(P.hud.ctx, P.hud)
+        end
+      end))
     end,
   })
 end
