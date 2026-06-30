@@ -15,6 +15,7 @@ function M.inspect(ctx, h)
   local clangd = require("fox-symdeps.clangd")
   local neotree = require("fox-symdeps.neotree")
   local classify = require("fox-symdeps.classify")
+  require("fox-symdeps.provider").run_all(ctx, h)
   clangd.layout(ctx, function(data, state) h:set_layout(data, state) end)
   if ctx.kind == "function" then
     -- functions: who actually calls it (call hierarchy), not every textual mention

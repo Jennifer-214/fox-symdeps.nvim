@@ -19,6 +19,7 @@ function M.open(ctx, palette, opts)
     layout = { state = "loading" },
     fields = { state = "loading", items = {} },
     consumers = { state = "loading", tree = {} },
+    sections = {}, -- provider-contributed extra sections: { {key, label, state, tree} }
     items = {}, -- selectable rows: { bufline, kind, node? (branch), loc? (leaf) }
     sel = 1,
     spin = 1,
@@ -46,12 +47,26 @@ function Hud:set_fields(items, state)
   self:render()
 end
 
+-- Upsert a provider-contributed section (by key, so a provider can update its own section).
+function Hud:set_section(key, label, tree, state)
+  for _, s in ipairs(self.sections) do
+    if s.key == key then
+      s.label, s.tree, s.state = label, tree or {}, state
+      self:render()
+      return
+    end
+  end
+  self.sections[#self.sections + 1] = { key = key, label = label, tree = tree or {}, state = state }
+  self:render()
+end
+
 -- Re-track (panel): point at a new symbol, reset sections to loading, re-render.
 function Hud:reset(ctx)
   self.ctx = ctx
   self.layout = { state = "loading" }
   self.fields = { state = "loading", items = {} }
   self.consumers = { state = "loading", tree = {} }
+  self.sections = {}
   self.sel = 1
   if self.mode == "panel" and self.win and vim.api.nvim_win_is_valid(self.win) then
     vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. ctx.symbol .. " %*"
@@ -216,6 +231,26 @@ function Hud:render()
   local function add_leaf(text, loc)
     self.items[#self.items + 1] = { bufline = add(text), kind = "entry", loc = loc }
   end
+  local home = vim.fn.getcwd()
+  local function render_tree(tree)
+    for _, role in ipairs(tree) do
+      add_branch(("   %s %s (%d)"):format(role.collapsed and "▸" or "▾", role.label, role.count),
+        "role", role, "FoxSymdepsHeader")
+      if not role.collapsed then
+        for _, file in ipairs(role.files) do
+          local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
+          add_branch(("     %s %s (%d)"):format(file.collapsed and "▸" or "▾", rel, file.count),
+            "file", file, "FoxSymdepsBadge")
+          if not file.collapsed then
+            for _, e in ipairs(file.entries) do
+              add_leaf("         " .. (e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)),
+                { file = file.file, line = e.line })
+            end
+          end
+        end
+      end
+    end
+  end
 
   add(" ◆ Layout", "FoxSymdepsHeader")
   for _, l in ipairs(self:_layout_lines()) do add("   " .. l, "FoxSymdepsBadge") end
@@ -259,22 +294,20 @@ function Hud:render()
   elseif not count or count == 0 then
     add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
   else
-    local home = vim.fn.getcwd()
-    for _, role in ipairs(vtree) do
-      add_branch(("   %s %s (%d)"):format(role.collapsed and "▸" or "▾", role.label, role.count),
-        "role", role, "FoxSymdepsHeader")
-      if not role.collapsed then
-        for _, file in ipairs(role.files) do
-          local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
-          add_branch(("     %s %s (%d)"):format(file.collapsed and "▸" or "▾", rel, file.count),
-            "file", file, "FoxSymdepsBadge")
-          if not file.collapsed then
-            for _, e in ipairs(file.entries) do
-              add_leaf("         " .. (e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)),
-                { file = file.file, line = e.line })
-            end
-          end
-        end
+    render_tree(vtree)
+  end
+
+  -- Provider sections (e.g. the trader's "⚠ Byte-layout blast radius")
+  for _, sec in ipairs(self.sections or {}) do
+    if sec.state == "loading" or (sec.state == "ok" and #sec.tree > 0) then
+      add("")
+      local scount = 0
+      for _, role in ipairs(sec.tree) do scount = scount + (role.count or 0) end
+      add(" " .. sec.label .. (sec.state == "ok" and (" (" .. scount .. ")") or ""), "FoxSymdepsHeader")
+      if sec.state == "loading" then
+        add("   " .. SPIN[self.spin] .. " analyzing…", "FoxSymdepsBadge")
+      else
+        render_tree(sec.tree)
       end
     end
   end
