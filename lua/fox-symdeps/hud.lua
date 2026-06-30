@@ -1,5 +1,6 @@
--- The calm float HUD: Layout badges + Consumers list for the symbol under cursor.
--- Stacked + scrollable (j/k native), <CR> jumps (jumplist-friendly), q/<Esc> closes. Async-filled.
+-- The calm float HUD — a picker over the symbol's layout + consumers. j/k snap between
+-- selectable entries (headers/blanks skipped), the active one gets a warm highlight + ▸,
+-- the text cursor is hidden, <CR> jumps (jumplist-friendly), q/<Esc> closes. Async-filled.
 local M = {}
 local NS = vim.api.nvim_create_namespace("fox_symdeps_hud")
 local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
@@ -15,11 +16,13 @@ function M.open(ctx, palette, on_close)
     origin = vim.api.nvim_get_current_win(),
     layout = { state = "loading" },
     consumers = { state = "loading", items = {} },
-    locs = {}, -- buffer line (1-based) -> { file, line } for <CR>
+    items = {}, -- selectable rows: { bufline (1-based), loc = { file, line } }
+    sel = 1,
     spin = 1,
     closed = false,
   }, Hud)
   self:_window()
+  self:_hide_cursor()
   self:_spinner()
   self:render()
   return self
@@ -51,7 +54,7 @@ function Hud:_window()
     title_pos = "center",
   })
   vim.wo[self.win].winblend = self.palette.winblend or 0
-  vim.wo[self.win].cursorline = true
+  vim.wo[self.win].cursorline = false -- selection is an explicit highlight, not the cursor line
   vim.wo[self.win].wrap = false
   vim.wo[self.win].winhighlight =
     "Normal:FoxSymdepsNormal,FloatBorder:FoxSymdepsBorder,FloatTitle:FoxSymdepsTitle"
@@ -59,17 +62,43 @@ function Hud:_window()
   local function map(lhs, fn)
     vim.keymap.set("n", lhs, fn, { buffer = self.buf, nowait = true, silent = true })
   end
+  map("j", function() self:_move(1) end)
+  map("k", function() self:_move(-1) end)
+  map("<Down>", function() self:_move(1) end)
+  map("<Up>", function() self:_move(-1) end)
+  map("<CR>", function() self:_jump() end)
   map("q", function() self:close() end)
   map("<Esc>", function() self:close() end)
-  map("<CR>", function() self:_jump() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k scroll · <CR> jump · q/<Esc> close", vim.log.levels.INFO)
+    vim.notify("fox-symdeps · j/k select · <CR> jump · q/<Esc> close", vim.log.levels.INFO)
   end)
+  -- keep it a picker, not an editor: neutralize stray motions/edits
+  for _, k in ipairs({ "h", "l", "<Left>", "<Right>", "i", "a", "o", "x", "dd", "p" }) do
+    map(k, function() end)
+  end
   vim.api.nvim_create_autocmd("BufLeave", {
     buffer = self.buf,
     once = true,
     callback = function() self:close() end,
   })
+end
+
+-- Hide the text cursor while the float is focused (restored on close) so it reads as a
+-- menu, not a text buffer. guicursor is global; we save + restore around the float.
+function Hud:_hide_cursor()
+  if not (vim.o.guicursor or ""):find("FoxSymdepsHiddenCursor", 1, true) then
+    self.saved_guicursor = vim.o.guicursor
+  end
+  pcall(function()
+    vim.api.nvim_set_hl(0, "FoxSymdepsHiddenCursor", { blend = 100 })
+    vim.o.guicursor = "a:FoxSymdepsHiddenCursor"
+  end)
+end
+
+function Hud:_move(dir)
+  if #self.items == 0 then return end
+  self.sel = math.max(1, math.min(#self.items, self.sel + dir))
+  self:render()
 end
 
 function Hud:_spinner()
@@ -98,11 +127,15 @@ end
 function Hud:render()
   if self.closed or not vim.api.nvim_buf_is_valid(self.buf) then return end
   local lines, hls = {}, {}
-  self.locs = {}
+  self.items = {}
   local function add(text, hl)
     lines[#lines + 1] = text
     if hl then hls[#lines] = hl end
     return #lines
+  end
+  local function add_item(text, loc)
+    local ln = add(text)
+    self.items[#self.items + 1] = { bufline = ln, loc = loc }
   end
 
   add(" ◆ Layout", "FoxSymdepsHeader")
@@ -122,9 +155,11 @@ function Hud:render()
     local home = vim.fn.getcwd()
     for _, it in ipairs(c.items) do
       local rel = it.file:gsub("^" .. vim.pesc(home) .. "/", "")
-      self.locs[add("   " .. rel .. ":" .. it.line)] = it
+      add_item("   " .. rel .. ":" .. it.line, it)
     end
   end
+
+  self.sel = math.max(1, math.min(math.max(#self.items, 1), self.sel))
 
   vim.bo[self.buf].modifiable = true
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, lines)
@@ -133,18 +168,29 @@ function Hud:render()
   for ln, hl in pairs(hls) do
     vim.api.nvim_buf_set_extmark(self.buf, NS, ln - 1, 0, { line_hl_group = hl })
   end
+
+  -- selection: warm bar + ▸ marker on the active item, cursor parked there for scroll
+  if #self.items > 0 then
+    local line = self.items[self.sel].bufline
+    vim.api.nvim_buf_set_extmark(self.buf, NS, line - 1, 0, { line_hl_group = "FoxSymdepsSelection" })
+    vim.api.nvim_buf_set_extmark(self.buf, NS, line - 1, 0,
+      { virt_text = { { " ▸", "FoxSymdepsHeader" } }, virt_text_pos = "overlay" })
+    if vim.api.nvim_win_is_valid(self.win) then
+      pcall(vim.api.nvim_win_set_cursor, self.win, { line, 0 })
+    end
+  end
 end
 
 function Hud:_jump()
-  local loc = self.locs[vim.api.nvim_win_get_cursor(self.win)[1]]
-  if not loc then return end
+  local it = self.items[self.sel]
+  if not (it and it.loc) then return end
   self:close()
   if vim.api.nvim_win_is_valid(self.origin) then
     vim.api.nvim_set_current_win(self.origin)
   end
-  vim.cmd("normal! m`") -- drop a jumplist mark so <C-o> returns
-  vim.cmd.edit(vim.fn.fnameescape(loc.file))
-  pcall(vim.api.nvim_win_set_cursor, 0, { loc.line, 0 })
+  vim.cmd("normal! m`") -- jumplist mark so <C-o> returns
+  vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
+  pcall(vim.api.nvim_win_set_cursor, 0, { it.loc.line, 0 })
 end
 
 function Hud:close()
@@ -154,6 +200,7 @@ function Hud:close()
     self.timer:stop()
     self.timer:close()
   end
+  if self.saved_guicursor then vim.o.guicursor = self.saved_guicursor end
   if self.win and vim.api.nvim_win_is_valid(self.win) then
     vim.api.nvim_win_close(self.win, true)
   end

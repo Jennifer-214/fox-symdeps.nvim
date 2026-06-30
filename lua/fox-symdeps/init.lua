@@ -34,6 +34,7 @@ local function set_highlights(p)
   hl("FoxSymdepsHeader", { fg = p.header or "#e0a0a0", bold = true })
   hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#a0907f" })
   hl("FoxSymdepsTreeCount", { fg = p.header or "#e0a0a0", bold = true }) -- neo-tree consumer-count badge
+  hl("FoxSymdepsSelection", { bg = p.selection or "#4a3340" })           -- picker selected-row bar (warm)
 end
 
 function M.setup(opts)
