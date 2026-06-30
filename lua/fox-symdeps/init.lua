@@ -1,7 +1,7 @@
--- fox-symdeps.nvim — symbol-intelligence HUD for C++ (v1: clangd-only core).
+-- fox-symdeps.nvim — symbol-intelligence HUD for C++.
 -- setup(opts):
---   key     = "<leader>dd"           -- trigger for the symbol HUD
---   palette = { header, badge, title, border, winblend }  -- theme cohesion; bg stays transparent
+--   key     = "<leader>dd"                                            -- trigger for the symbol HUD
+--   palette = { header, badge, title, border, selection, winblend }  -- theme cohesion
 local M = {}
 
 local defaults = {
@@ -9,22 +9,17 @@ local defaults = {
   palette = {},
 }
 
--- one trigger → context → async clangd(layout, consumers) → HUD. (v1 hardcodes the two sections;
--- the provider/registry abstraction arrives in W2 with the trader provider as the 2nd caller.)
-local function trigger()
-  local ctx = require("fox-symdeps.context").under_cursor()
-  if not ctx then
-    return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
-  end
+-- Fire the async queries for `ctx` and stream results into the HUD/panel `h`. Reusable so the
+-- transient float and the persistent panel share one fetch engine.
+function M.inspect(ctx, h)
   local clangd = require("fox-symdeps.clangd")
   local neotree = require("fox-symdeps.neotree")
-  local h = require("fox-symdeps.hud").open(ctx, M.config.palette, function() neotree.clear() end)
+  local classify = require("fox-symdeps.classify")
   clangd.layout(ctx, function(data, state) h:set_layout(data, state) end)
   if ctx.kind == "function" then
     -- functions: who actually calls it (call hierarchy), not every textual mention
     clangd.callers(ctx, function(items, state)
       if state == "ok" then
-        local classify = require("fox-symdeps.classify")
         for _, it in ipairs(items) do it.role = "called"; it.scope = it.name end
         h:set_consumers(classify.tree(items), state)
         neotree.set(items)
@@ -33,10 +28,9 @@ local function trigger()
       end
     end)
   else
-    -- types: classify each reference by role
+    -- types: classify each reference by role + map the byte layout
     clangd.consumers(ctx, function(items, state)
       if state == "ok" then
-        local classify = require("fox-symdeps.classify")
         h:set_consumers(classify.tree(classify.classify(items)), state)
         neotree.set(items)
       else
@@ -45,6 +39,16 @@ local function trigger()
     end)
     require("fox-symdeps.layout").fields(ctx, function(items, state) h:set_fields(items, state) end)
   end
+end
+
+local function trigger()
+  local ctx = require("fox-symdeps.context").under_cursor()
+  if not ctx then
+    return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
+  end
+  local neotree = require("fox-symdeps.neotree")
+  local h = require("fox-symdeps.hud").open(ctx, M.config.palette, function() neotree.clear() end)
+  M.inspect(ctx, h)
 end
 
 local function set_highlights(p)
