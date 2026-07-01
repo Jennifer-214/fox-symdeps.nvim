@@ -19,6 +19,7 @@ function M.open(ctx, palette, opts)
     layout = { state = "loading" },
     fields = { state = "loading", items = {} },
     consumers = { state = "loading", tree = {} },
+    trace = { state = "skip", items = {} }, -- transitive call trace (functions only)
     sections = {}, -- provider-contributed extra sections: { {key, label, state, tree} }
     items = {}, -- selectable rows: { bufline, kind, node? (branch), loc? (leaf) }
     sel = 1,
@@ -60,12 +61,18 @@ function Hud:set_section(key, label, tree, state)
   self:render()
 end
 
+function Hud:set_trace(items, state)
+  self.trace = { state = state, items = items or {} }
+  self:render()
+end
+
 -- Re-track (panel): point at a new symbol, reset sections to loading, re-render.
 function Hud:reset(ctx)
   self.ctx = ctx
   self.layout = { state = "loading" }
   self.fields = { state = "loading", items = {} }
   self.consumers = { state = "loading", tree = {} }
+  self.trace = { state = "skip", items = {} }
   self.sections = {}
   self.sel = 1
   if self.mode == "panel" and self.win and vim.api.nvim_win_is_valid(self.win) then
@@ -154,7 +161,8 @@ function Hud:_spinner()
     if self.closed then return end
     self.spin = (self.spin % #SPIN) + 1
     if self.layout.state == "loading" or self.consumers.state == "loading"
-      or (self.fields and self.fields.state == "loading") then
+      or (self.fields and self.fields.state == "loading")
+      or (self.trace and self.trace.state == "loading") then
       self:render()
     end
   end))
@@ -295,6 +303,20 @@ function Hud:render()
     add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
   else
     render_tree(vtree)
+  end
+
+  -- Call trace (functions only): transitive callers, indented by depth
+  local tr = self.trace
+  if self.ctx.kind == "function" and tr and (tr.state == "loading" or (tr.state == "ok" and #tr.items > 0)) then
+    add("")
+    add(" ↪ Call trace" .. (tr.state == "ok" and (" (" .. #tr.items .. ")") or ""), "FoxSymdepsHeader")
+    if tr.state == "loading" then
+      add("   " .. SPIN[self.spin] .. " walking…", "FoxSymdepsBadge")
+    else
+      for _, it in ipairs(tr.items) do
+        add_leaf(("   %s%s  :%d"):format(("  "):rep(it.depth), it.name, it.line), { file = it.file, line = it.line })
+      end
+    end
   end
 
   -- Provider sections (e.g. the trader's "⚠ Byte-layout blast radius")

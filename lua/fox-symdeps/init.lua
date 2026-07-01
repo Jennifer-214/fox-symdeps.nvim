@@ -28,6 +28,8 @@ function M.inspect(ctx, h)
         h:set_consumers(nil, state)
       end
     end)
+    h:set_trace(nil, "loading")
+    require("fox-symdeps.trace").incoming(ctx, function(items, state) h:set_trace(items, state) end)
   else
     -- types: classify each reference by role + map the byte layout
     clangd.consumers(ctx, function(items, state)
