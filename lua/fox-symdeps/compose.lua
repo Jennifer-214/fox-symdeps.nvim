@@ -4,10 +4,17 @@
 -- structure-only (name:type) — the top level's offsets/sizes come from clangd's field map. Generic.
 local M = {}
 
--- a member type worth recursing into: a bare user type (Capitalized ident), not a primitive /
--- pointer / array / template / std:: type.
+-- the base name of a type, template args stripped: "FPN_Binary<F>" -> "FPN_Binary".
+local function base_of(t)
+  return t and (t:gsub("%s*<.*$", ""):gsub("%s+$", "")) or t
+end
+
+-- a member type worth recursing into: a bare user type (Capitalized ident, template args OK),
+-- not a primitive / pointer / array / std:: type. Recurses into the base template.
 local function is_struct_type(t)
-  return t ~= nil and t:match("^[%u][%w_]*$") ~= nil
+  if not t or t:find("[%*%[]") then return false end -- pointer / array → don't recurse
+  local b = base_of(t)
+  return b:match("^[%u][%w_]*$") ~= nil
 end
 
 local function def_file(name, root)
@@ -82,7 +89,7 @@ function M.tree(name, root, depth, seen)
   for _, m in ipairs(M.members(name, root)) do
     local node = { name = m.name, type = m.type }
     if is_struct_type(m.type) then
-      local kids = M.tree(m.type, root, depth - 1, seen)
+      local kids = M.tree(base_of(m.type), root, depth - 1, seen) -- recurse the base template
       if #kids > 0 then node.children = kids end
     end
     out[#out + 1] = node
