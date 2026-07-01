@@ -62,6 +62,8 @@ function M.layout(ctx, cb)
           cb(layout, layout and "ok" or "empty")
         end
       end)
+    elseif md:match("template%s*<") then
+      cb({ is_template = true }, "ok") -- un-instantiated template: no concrete size (put cursor on Foo<N>)
     else
       cb(layout, layout and "ok" or "empty")
     end

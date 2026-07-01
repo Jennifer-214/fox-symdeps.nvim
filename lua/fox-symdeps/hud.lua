@@ -219,6 +219,9 @@ function Hud:_layout_lines()
   local d = self.layout
   if d.state == "loading" then return { SPIN[self.spin] .. " sizing…" } end
   if d.state == "no_client" then return { "clangd not attached" } end
+  if d.state == "ok" and d.data and d.data.is_template then
+    return { "template — put cursor on a concrete Foo<N> use for its size" }
+  end
   if d.state ~= "ok" or not d.data or not d.data.size then return { "layout unavailable" } end
   local sz, al = d.data.size, d.data.align or 0
   local out = { ("size %d B · align %d%s"):format(sz, al, d.data.computed and "  (sizeof probe)" or "") }
