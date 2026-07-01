@@ -10,11 +10,13 @@ local state = { active = false, refs = {}, by_file = {}, idx = 0 }
 
 local ROLE_TAG = {
   input = "in", returned = "out", embedded = "field",
-  instantiated = "local", byte = "byte", called = "call", other = "use",
+  instantiated = "local", byte = "sizeof", called = "call", other = "use",
 }
 
 local function tag_buffer(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then return end
+  -- clear first so re-entering the buffer (BufEnter fires repeatedly) doesn't stack duplicate tags
+  pcall(vim.api.nvim_buf_clear_namespace, bufnr, NS, 0, -1)
   local abs = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":p")
   local refs = state.by_file[abs]
   if not refs then return end
@@ -92,6 +94,7 @@ function M.prev()
   jump(state.refs[state.idx])
 end
 
-M._ns = NS         -- exposed for tests
-M._state = state   -- exposed for tests
+M._ns = NS                 -- exposed for tests
+M._state = state           -- exposed for tests
+M._tag_buffer = tag_buffer -- exposed for tests (idempotency)
 return M

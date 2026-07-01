@@ -32,6 +32,10 @@ ok(by_row[4] and by_row[4][2] == "FoxSymdepsAlarm", "byte tag (line 5) uses RED 
 ok(by_row[4] and by_row[4][1]:find("⚠", 1, true) ~= nil, "byte tag glows ⚠")
 ok(by_row[5] and by_row[5][2] == "FoxSymdepsLensTag", "returned tag (line 6) stays calm")
 
+-- re-entering the buffer (BufEnter re-tags) must NOT stack duplicate tags (the buildup bug)
+lens._tag_buffer(buf); lens._tag_buffer(buf)
+ok(#vim.api.nvim_buf_get_extmarks(buf, lens._ns, 0, -1, {}) == 3, "re-tag is idempotent (no buildup)")
+
 lens.next(); ok(vim.api.nvim_win_get_cursor(0)[1] == 2, "]u → first use (line 2)")
 lens.next(); ok(vim.api.nvim_win_get_cursor(0)[1] == 5, "]u → line 5")
 lens.prev(); ok(vim.api.nvim_win_get_cursor(0)[1] == 2, "[u → back to line 2")

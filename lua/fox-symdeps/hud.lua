@@ -149,6 +149,8 @@ function Hud:_window()
   map("k", function() self:_move(-1) end)
   map("<Down>", function() self:_move(1) end)
   map("<Up>", function() self:_move(-1) end)
+  map("<C-d>", function() self:_page(1) end)
+  map("<C-u>", function() self:_page(-1) end)
   map("<CR>", function() self:_activate() end)
   map("l", function() self:_activate() end) -- leaf = jump, branch = expand
   map("<Right>", function() self:_activate() end)
@@ -160,7 +162,7 @@ function Hud:_window()
   map("y", function() self:_yank() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> jump · / filter · b break-check · <C-q> quickfix · y yank · q close",
+    vim.notify("fox-symdeps · j/k select · C-d/C-u page · l/h expand/collapse · <CR> jump · / filter · b break-check · <C-q> quickfix · y yank · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
@@ -189,6 +191,12 @@ function Hud:_move(dir)
   if #self.items == 0 then return end
   self.sel = math.max(1, math.min(#self.items, self.sel + dir))
   self:render()
+end
+
+-- <C-d>/<C-u>: jump the selection by ~half a window height (fast nav through long lists).
+function Hud:_page(dir)
+  local h = (self.win and vim.api.nvim_win_is_valid(self.win)) and vim.api.nvim_win_get_height(self.win) or 20
+  self:_move(dir * math.max(1, math.floor(h / 2)))
 end
 
 function Hud:_spinner()
