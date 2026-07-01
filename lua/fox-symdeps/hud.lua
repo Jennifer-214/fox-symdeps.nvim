@@ -58,6 +58,10 @@ end
 
 function Hud:set_layout(data, state)
   self.layout = { state = state, data = data }
+  -- winbar carries the tracked symbol + its size once known (panel only)
+  if self.mode == "panel" and self.win and vim.api.nvim_win_is_valid(self.win) and data and data.size then
+    vim.wo[self.win].winbar = ("%%#FoxSymdepsTitle# %s · %d B %%*"):format(self.ctx.symbol, data.size)
+  end
   self:render()
 end
 
@@ -153,9 +157,10 @@ function Hud:_window()
   map("q", function() self:close() end)
   map("<Esc>", function() self:close() end)
   map("<C-q>", function() self:_to_quickfix() end)
+  map("y", function() self:_yank() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> jump · / filter · b break-check · <C-q> quickfix · q close",
+    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> jump · / filter · b break-check · <C-q> quickfix · y yank · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
@@ -432,6 +437,15 @@ function Hud:_to_quickfix()
   if self.mode == "float" then self:close() end
   vim.cmd("botright copen")
   vim.notify(("fox-symdeps · %d sites → quickfix (:cnext / :cprev)"):format(#qf), vim.log.levels.INFO)
+end
+
+-- y: yank the whole readout to the system clipboard (+ unnamed) — copy the panel as text
+-- instead of screenshotting it (sidesteps the big-screenshot copy snag).
+function Hud:_yank()
+  local text = table.concat(vim.api.nvim_buf_get_lines(self.buf, 0, -1, false), "\n")
+  pcall(vim.fn.setreg, "+", text)
+  vim.fn.setreg('"', text)
+  vim.notify("fox-symdeps · readout yanked to clipboard", vim.log.levels.INFO)
 end
 
 -- l / h: expand / collapse the selected branch.
