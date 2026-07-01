@@ -158,12 +158,12 @@ function Hud:_window()
   map("<Left>", function() self:_set_collapsed(true) end)
   map("q", function() self:close() end)
   map("<Esc>", function() self:close() end)
-  map("<C-q>", function() self:_to_quickfix() end)
+  map("Q", function() self:_to_quickfix() end)
   map("y", function() self:_yank() end)
   map("w", function() self:_width_lits() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · b break-check · w width-lits · <C-q> quickfix · y yank · q close",
+    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · b break-check · w width-lits · Q quickfix · y yank · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do

@@ -163,7 +163,7 @@ function M.tree(items)
         files[#files + 1] = fe
       end
       table.sort(files, function(a, b) return a.file < b.file end)
-      out[#out + 1] = { label = ROLE_LABEL[r], role = r, count = count, collapsed = false, files = files }
+      out[#out + 1] = { label = ROLE_LABEL[r], role = r, count = count, collapsed = true, files = files }
     end
   end
   return out
