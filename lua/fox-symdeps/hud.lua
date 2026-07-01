@@ -5,6 +5,14 @@ local M = {}
 local NS = vim.api.nvim_create_namespace("fox_symdeps_hud")
 local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
+-- arithmetic cost at a native scalar width (confirmed vs clang -S: 128-bit add = addq+adcq;
+-- 64-bit = single add/lea). Shown in Layout so it updates live as you resize a field.
+local WIDTH_OPS = {
+  [4] = "→ 32-bit ALU · add/cmp/mul = 1 insn each",
+  [8] = "→ 64-bit ALU · add/cmp/mul = 1 insn each",
+  [16] = "→ 128-bit · add = add+adc (2) · cmp = cmp+sbb (2) · mul = umul128",
+}
+
 local Hud = {}
 Hud.__index = Hud
 
@@ -184,6 +192,7 @@ function Hud:_layout_lines()
     local lines = math.ceil(sz / 64)
     out[#out + 1] = ("spans %d cache lines · %d B free in line %d"):format(lines, lines * 64 - sz, lines)
   end
+  if WIDTH_OPS[sz] then out[#out + 1] = WIDTH_OPS[sz] end
   return out
 end
 
