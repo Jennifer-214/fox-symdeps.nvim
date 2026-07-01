@@ -112,6 +112,9 @@ function M.setup(opts)
     local n = require("fox-symdeps.pack").reload()
     vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
   end, { desc = "fox-symdeps: re-scan tool-pack dirs" })
+  vim.api.nvim_create_user_command("FoxSymdepsAsmFlags", function()
+    require("fox-symdeps.asmflags").choose()
+  end, { desc = "fox-symdeps: pick / add asm flag-sets (auto-saved)" })
   -- re-apply on colorscheme change so a theme swap re-themes the HUD
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),

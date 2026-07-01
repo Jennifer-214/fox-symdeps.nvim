@@ -106,6 +106,7 @@ function M.run(bufnr, fn_name, flagset, cb)
       if not hit then return cb({ inlined = true }) end
       local a = M.analyze(hit.lines)
       a.flagset = table.concat(flagset, " ")
+      a.lines_shown = vim.list_slice(hit.lines, 1, 60) -- cap the displayed listing
       cb(a)
     end)
   end)

@@ -154,12 +154,13 @@ function Hud:_window()
   map("Q", function() self:_to_quickfix() end)
   map("y", function() self:_yank() end)
   map("w", function() self:_width_lits() end)
+  map("a", function() self:_asm() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · b break-check · w width-lits · Q quickfix · y yank · q close",
+    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · b break-check · w width-lits · a asm-diff · Q quickfix · y yank · q close",
       vim.log.levels.INFO)
   end)
-  for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
+  for _, k in ipairs({ "i", "o", "x", "dd", "p" }) do
     map(k, function() end)
   end
   if self.mode == "float" then
@@ -491,6 +492,25 @@ function Hud:_width_lits()
   if self.mode == "float" then self:close() end
   vim.cmd("botright copen")
   vim.notify(("fox-symdeps · %d width-literal suspect(s) → quickfix (review — heuristic)"):format(#sus), vim.log.levels.INFO)
+end
+
+-- a: asm flag-diff for a FUNCTION under cursor — compile under two flag-sets, show insns/branches/
+-- vector side by side (W15). Flag-sets come from asmflags (built-in defaults + your saved picks).
+function Hud:_asm()
+  if self.ctx.kind ~= "function" then
+    return vim.notify("fox-symdeps · asm-diff is for functions (put the cursor on a function)", vim.log.levels.INFO)
+  end
+  local flags = require("fox-symdeps.asmflags")
+  local a, b = flags.pair()
+  local bufnr, fn = self.ctx.bufnr, self.ctx.symbol
+  vim.notify(("fox-symdeps · asm-diff %s: %s vs %s…"):format(fn, a.name, b.name), vim.log.levels.INFO)
+  local asmdiff = require("fox-symdeps.asmdiff")
+  local res, rerun = {}, function() self:_asm() end
+  local function done()
+    if res.a and res.b then require("fox-symdeps.asmview").show(fn, a, b, res.a, res.b, rerun) end
+  end
+  asmdiff.run(bufnr, fn, a.flags, function(r) res.a = r or {}; done() end)
+  asmdiff.run(bufnr, fn, b.flags, function(r) res.b = r or {}; done() end)
 end
 
 -- l / h: expand / collapse the selected branch.
