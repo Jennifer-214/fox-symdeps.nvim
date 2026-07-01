@@ -16,6 +16,21 @@ local WIDTH_OPS = {
 local Hud = {}
 Hud.__index = Hud
 
+-- W17: turn the HUD's jumpable rows into quickfix items, BROKEN ones first (so :cnext walks the
+-- breaks first). Pure — takes the rendered items, returns a quickfix-list table.
+local function build_qf(items)
+  local broken, rest = {}, {}
+  for _, it in ipairs(items or {}) do
+    if it.loc then
+      local qi = { filename = it.loc.file, lnum = it.loc.line, col = (it.loc.col or 0) + 1, text = it.qftext or "" }
+      table.insert(it.broken and broken or rest, qi)
+    end
+  end
+  vim.list_extend(broken, rest)
+  return broken
+end
+M._build_qf = build_qf
+
 function M.open(ctx, palette, opts)
   opts = opts or {}
   local self = setmetatable({
@@ -137,9 +152,10 @@ function Hud:_window()
   map("<Left>", function() self:_set_collapsed(true) end)
   map("q", function() self:close() end)
   map("<Esc>", function() self:close() end)
+  map("<C-q>", function() self:_to_quickfix() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> open/jump · / filter · b break-check · q close",
+    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> jump · / filter · b break-check · <C-q> quickfix · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
@@ -252,8 +268,9 @@ function Hud:render()
   local function add_branch(text, kind, node, hl)
     self.items[#self.items + 1] = { bufline = add(text, hl), kind = kind, node = node }
   end
-  local function add_leaf(text, loc, hl)
-    self.items[#self.items + 1] = { bufline = add(text, hl), kind = "entry", loc = loc }
+  local function add_leaf(text, loc, hl, broken)
+    self.items[#self.items + 1] =
+      { bufline = add(text, hl), kind = "entry", loc = loc, broken = broken, qftext = vim.trim(text) }
   end
   local home = vim.fn.getcwd()
   local function render_tree(tree)
@@ -269,7 +286,7 @@ function Hud:render()
             for _, e in ipairs(file.entries) do
               local tail = e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)
               if e.broken then
-                add_leaf("     ⚠   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm")
+                add_leaf("     ⚠   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
               else
                 add_leaf("         " .. tail, { file = file.file, line = e.line })
               end
@@ -402,6 +419,19 @@ function Hud:_activate()
     vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
     pcall(vim.api.nvim_win_set_cursor, 0, { it.loc.line, 0 })
   end
+end
+
+-- <C-q>: send every jumpable row to the quickfix list (breaks first) and open it, so you can
+-- :cnext through every site that touches the symbol — the actionable blast-walk (W17).
+function Hud:_to_quickfix()
+  local qf = build_qf(self.items)
+  if #qf == 0 then
+    return vim.notify("fox-symdeps · nothing to send to quickfix", vim.log.levels.INFO)
+  end
+  vim.fn.setqflist({}, " ", { title = "fox-symdeps: " .. (self.ctx.symbol or ""), items = qf })
+  if self.mode == "float" then self:close() end
+  vim.cmd("botright copen")
+  vim.notify(("fox-symdeps · %d sites → quickfix (:cnext / :cprev)"):format(#qf), vim.log.levels.INFO)
 end
 
 -- l / h: expand / collapse the selected branch.
