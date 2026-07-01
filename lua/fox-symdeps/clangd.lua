@@ -24,6 +24,11 @@ local function parse_layout(md)
   }
 end
 
+-- the concrete template spec named in a hover ("struct `Foo<64>`") → "Foo<64>", else nil.
+local function spec_of(md)
+  return md and md:match("([%w_:]+%b<>)") or nil
+end
+
 local function pos_params(ctx)
   return {
     textDocument = { uri = vim.uri_from_bufnr(ctx.bufnr) },
@@ -42,7 +47,24 @@ function M.layout(ctx, cb)
       return cb(nil, "empty")
     end
     local md = type(result.contents) == "table" and (result.contents.value or "") or tostring(result.contents)
-    cb(parse_layout(md), "ok")
+    local layout = parse_layout(md)
+    if layout and layout.size then
+      return cb(layout, "ok")
+    end
+    -- W23: clangd hover omits Size for a template instantiation. If the hover names a concrete
+    -- spec (`Foo<...>`), recover size/align via a sizeof probe; else degrade gracefully.
+    local spec = spec_of(md)
+    if spec then
+      require("fox-symdeps.sizeprobe").compute(ctx.bufnr, spec, function(sz)
+        if sz then
+          cb({ size = sz.size, align = sz.align or (layout and layout.align), computed = true }, "ok")
+        else
+          cb(layout, layout and "ok" or "empty")
+        end
+      end)
+    else
+      cb(layout, layout and "ok" or "empty")
+    end
   end, ctx.bufnr)
 end
 
@@ -102,5 +124,6 @@ end
 
 -- exposed for unit tests (pure parse, no nvim needed); see tests/test_parse_layout.lua
 M._parse_layout = parse_layout
+M._spec_of = spec_of
 
 return M

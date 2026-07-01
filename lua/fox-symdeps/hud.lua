@@ -74,6 +74,13 @@ function Hud:set_trace(items, state)
   self:render()
 end
 
+-- Register an on-demand action key (e.g. a provider's break-check on 'b'). Buffer-local so it
+-- only lives while the HUD is open; providers call this once their section is ready.
+function Hud:map_action(key, fn)
+  if self.closed or not self.buf or not vim.api.nvim_buf_is_valid(self.buf) then return end
+  vim.keymap.set("n", key, function() fn() end, { buffer = self.buf, nowait = true, silent = true })
+end
+
 -- Re-track (panel): point at a new symbol, reset sections to loading, re-render.
 function Hud:reset(ctx)
   self.ctx = ctx
@@ -132,7 +139,7 @@ function Hud:_window()
   map("<Esc>", function() self:close() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> open/jump · / filter · q close",
+    vim.notify("fox-symdeps · j/k select · l/h expand/collapse · <CR> open/jump · / filter · b break-check · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
@@ -184,7 +191,7 @@ function Hud:_layout_lines()
   if d.state == "no_client" then return { "clangd not attached" } end
   if d.state ~= "ok" or not d.data or not d.data.size then return { "layout unavailable" } end
   local sz, al = d.data.size, d.data.align or 0
-  local out = { ("size %d B · align %d"):format(sz, al) }
+  local out = { ("size %d B · align %d%s"):format(sz, al, d.data.computed and "  (sizeof probe)" or "") }
   if sz <= 64 then
     local reg = sz <= 16 and "XMM 128b" or (sz <= 32 and "YMM 256b" or "ZMM 512b")
     out[#out + 1] = ("fits 1 cache line · %d B slack · %d/line · → %s"):format(64 - sz, math.floor(64 / sz), reg)
@@ -245,8 +252,8 @@ function Hud:render()
   local function add_branch(text, kind, node, hl)
     self.items[#self.items + 1] = { bufline = add(text, hl), kind = kind, node = node }
   end
-  local function add_leaf(text, loc)
-    self.items[#self.items + 1] = { bufline = add(text), kind = "entry", loc = loc }
+  local function add_leaf(text, loc, hl)
+    self.items[#self.items + 1] = { bufline = add(text, hl), kind = "entry", loc = loc }
   end
   local home = vim.fn.getcwd()
   local function render_tree(tree)
@@ -260,8 +267,12 @@ function Hud:render()
             "file", file, "FoxSymdepsBadge")
           if not file.collapsed then
             for _, e in ipairs(file.entries) do
-              add_leaf("         " .. (e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)),
-                { file = file.file, line = e.line })
+              local tail = e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)
+              if e.broken then
+                add_leaf("     ⚠   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm")
+              else
+                add_leaf("         " .. tail, { file = file.file, line = e.line })
+              end
             end
           end
         end
