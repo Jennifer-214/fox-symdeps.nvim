@@ -160,9 +160,10 @@ function Hud:_window()
   map("<Esc>", function() self:close() end)
   map("<C-q>", function() self:_to_quickfix() end)
   map("y", function() self:_yank() end)
+  map("w", function() self:_width_lits() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k select · C-d/C-u page · l/h expand/collapse · <CR> jump · / filter · b break-check · <C-q> quickfix · y yank · q close",
+    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · b break-check · w width-lits · <C-q> quickfix · y yank · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "a", "o", "x", "dd", "p" }) do
@@ -466,6 +467,33 @@ function Hud:_yank()
   pcall(vim.fn.setreg, "+", text)
   vim.fn.setreg('"', text)
   vim.notify("fox-symdeps · readout yanked to clipboard", vim.log.levels.INFO)
+end
+
+-- w: scan the symbol's files for hardcoded width literals (== its size, byte-ish, no sizeof) and
+-- send the suspects to quickfix — the break class W18's static_assert check can't catch (W21).
+function Hud:_width_lits()
+  local size = self.layout and self.layout.data and self.layout.data.size
+  if not size then
+    return vim.notify("fox-symdeps · size unknown — can't scan width literals", vim.log.levels.INFO)
+  end
+  local files = {}
+  local function collect(tree)
+    for _, role in ipairs(tree or {}) do
+      for _, fe in ipairs(role.files or {}) do files[#files + 1] = fe.file end
+    end
+  end
+  collect(self.consumers.tree)
+  for _, sec in ipairs(self.sections or {}) do collect(sec.tree) end
+  local sus = require("fox-symdeps.widthlit").scan(files, size)
+  if #sus == 0 then
+    return vim.notify(("fox-symdeps · no width-literal suspects for %d B"):format(size), vim.log.levels.INFO)
+  end
+  local qf = {}
+  for _, s in ipairs(sus) do qf[#qf + 1] = { filename = s.file, lnum = s.line, col = 1, text = s.text } end
+  vim.fn.setqflist({}, " ", { title = ("fox-symdeps width-literals %dB: %s"):format(size, self.ctx.symbol or ""), items = qf })
+  if self.mode == "float" then self:close() end
+  vim.cmd("botright copen")
+  vim.notify(("fox-symdeps · %d width-literal suspect(s) → quickfix (review — heuristic)"):format(#sus), vim.log.levels.INFO)
 end
 
 -- l / h: expand / collapse the selected branch.
