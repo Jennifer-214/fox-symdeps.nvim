@@ -16,5 +16,6 @@ function M.run_all(ctx, hud)
 end
 
 function M.clear() providers = {} end -- for tests / re-registration
+function M.count() return #providers end
 
 return M

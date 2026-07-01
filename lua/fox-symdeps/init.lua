@@ -7,6 +7,7 @@ local M = {}
 local defaults = {
   key = "<leader>dd",
   palette = {},
+  pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
 }
 
 -- Fire the async queries for `ctx` and stream results into the HUD/panel `h`. Reusable so the
@@ -105,6 +106,12 @@ end
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", defaults, opts or {})
   set_highlights(M.config.palette)
+  -- W14: auto-load private provider modules from the configured pack dirs
+  if #M.config.pack_dirs > 0 then require("fox-symdeps.pack").setup(M.config.pack_dirs) end
+  vim.api.nvim_create_user_command("FoxSymdepsReload", function()
+    local n = require("fox-symdeps.pack").reload()
+    vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
+  end, { desc = "fox-symdeps: re-scan tool-pack dirs" })
   -- re-apply on colorscheme change so a theme swap re-themes the HUD
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),
