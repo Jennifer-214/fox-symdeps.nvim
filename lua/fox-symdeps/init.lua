@@ -42,6 +42,12 @@ function M.inspect(ctx, h)
       end
     end)
     require("fox-symdeps.layout").fields(ctx, function(items, state) h:set_fields(items, state) end)
+    -- W22: recursive composition ("what this struct contains") — deferred so it never blocks the open
+    vim.schedule(function()
+      local root = vim.fs.root(ctx.file, { ".git", "compile_commands.json" }) or vim.fn.fnamemodify(ctx.file, ":h")
+      local ok, tree = pcall(require("fox-symdeps.compose").tree, ctx.symbol, root, 2)
+      if ok and tree and not h.closed then h:set_composition(tree) end
+    end)
   end
 end
 

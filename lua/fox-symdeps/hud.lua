@@ -81,6 +81,12 @@ function Hud:set_fields(items, state)
   self:render()
 end
 
+-- W22: the recursive composition tree ("what this struct contains, all the way down").
+function Hud:set_composition(tree)
+  self.composition = tree or {}
+  self:render()
+end
+
 -- Upsert a provider-contributed section (by key, so a provider can update its own section).
 function Hud:set_section(key, label, tree, state)
   for _, s in ipairs(self.sections) do
@@ -114,6 +120,7 @@ function Hud:reset(ctx)
   self.consumers = { state = "loading", tree = {} }
   self.trace = { state = "skip", items = {} }
   self.sections = {}
+  self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
   self.sel = 1
   self.prev_size = nil -- W20: don't carry a size delta across a struct switch
   self:render() -- panel winbar (tab bar) is re-set by panel.lua after reset
@@ -356,6 +363,19 @@ function Hud:render()
     add(" ▦ Byte map" .. (bm.straddle and "  ⚠ straddles a cache line" or ""),
       bm.straddle and "FoxSymdepsAlarm" or "FoxSymdepsHeader")
     for _, l in ipairs(bm.lines) do add("   " .. l, "FoxSymdepsBadge") end
+    add("")
+  end
+
+  -- Reverse composition (types only): what this struct contains, recursively (W22)
+  if self.ctx.kind ~= "function" and self.composition and #self.composition > 0 then
+    add(" ⊟ Contains", "FoxSymdepsHeader")
+    local function render_comp(nodes, depth)
+      for _, n in ipairs(nodes) do
+        add(("   %s%s : %s"):format(("  "):rep(depth), n.name, n.type), "FoxSymdepsBadge")
+        if n.children then render_comp(n.children, depth + 1) end
+      end
+    end
+    render_comp(self.composition, 0)
     add("")
   end
 
