@@ -21,5 +21,12 @@ ok(qf[2].filename == "/e/a.hpp" and qf[3].filename == "/e/c.hpp", "non-broken ro
 ok(qf[2].col == 1, "missing col defaults to 1")
 ok(#build_qf({}) == 0, "empty input → empty list")
 
+-- W20 diff-on-edit: size-delta string
+local sd = require("fox-symdeps.hud")._size_delta
+ok(sd(16, 8) == "  (was 16, -8)", "size delta shrink")
+ok(sd(8, 12) == "  (was 8, +4)", "size delta grow")
+ok(sd(16, 16) == "", "no change → empty")
+ok(sd(nil, 8) == "", "no prev → empty")
+
 io.write(("test_quickfix: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)
