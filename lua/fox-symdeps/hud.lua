@@ -330,7 +330,8 @@ function Hud:render()
         local lo = math.floor(f.offset / 64)
         local hi = math.floor((f.offset + math.max(f.size, 1) - 1) / 64)
         local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ⚠ straddles")
-        add(("     @%-4d %-14s %3d B  %s"):format(f.offset, f.name, f.size, lstr), "FoxSymdepsBadge")
+        local ty = f.type and (f.type:sub(1, 18)) or ""
+        add(("     @%-4d %-12s %3dB %-18s %s"):format(f.offset, f.name, f.size, ty, lstr), "FoxSymdepsBadge")
         prev_end = f.offset + f.size
       end
     end
