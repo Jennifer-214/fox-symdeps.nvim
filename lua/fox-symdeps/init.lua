@@ -63,6 +63,32 @@ local function trigger()
   M.inspect(ctx, h)
 end
 
+-- W13 use-lens: project the symbol-under-cursor's uses onto the source as eol role tags.
+local function toggle_lens()
+  local lens = require("fox-symdeps.highlight")
+  if lens.active() then
+    lens.clear()
+    return vim.notify("fox-symdeps · use-lens off", vim.log.levels.INFO)
+  end
+  local ctx = require("fox-symdeps.context").under_cursor()
+  if not ctx then
+    return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
+  end
+  require("fox-symdeps.clangd").consumers(ctx, function(items, state)
+    if state ~= "ok" or not items or #items == 0 then
+      return vim.notify("fox-symdeps · no uses (clangd " .. tostring(state) .. ")", vim.log.levels.INFO)
+    end
+    local n
+    if ctx.kind == "function" then
+      for _, it in ipairs(items) do it.role = "called" end
+      n = lens.show(items)
+    else
+      n = lens.show(require("fox-symdeps.classify").classify(items))
+    end
+    vim.notify(("fox-symdeps · use-lens on · %d uses · ]u/[u to hop"):format(n), vim.log.levels.INFO)
+  end)
+end
+
 local function set_highlights(p)
   local function hl(name, spec) vim.api.nvim_set_hl(0, name, spec) end
   hl("FoxSymdepsNormal", { bg = "none" }) -- transparent → inherits the terminal's opacity
@@ -73,6 +99,7 @@ local function set_highlights(p)
   hl("FoxSymdepsTreeCount", { fg = p.header or "#e0a0a0", bold = true }) -- neo-tree consumer-count badge
   hl("FoxSymdepsSelection", { bg = p.selection or "#4a3340" })           -- picker selected-row bar (warm)
   hl("FoxSymdepsAlarm", { fg = p.alarm or "#e06c75", bold = true })       -- RED — reserved for breaks/straddle/danger only
+  hl("FoxSymdepsLensTag", { fg = p.badge or p.muted or "#a0907f", italic = true }) -- calm in-code use tag (W13)
 end
 
 function M.setup(opts)
@@ -90,6 +117,9 @@ function M.setup(opts)
   vim.keymap.set("n", "<leader>dS", function()
     require("fox-symdeps.browse").browse(M.config.palette)
   end, { desc = "fox-symdeps: browse structs" })
+  vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
+  vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
+  vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })
   local ok, wk = pcall(require, "which-key")
   if ok and wk.add then
     pcall(wk.add, { { "<leader>d", group = "symdeps" } })
