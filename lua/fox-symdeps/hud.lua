@@ -328,6 +328,18 @@ function Hud:render()
     add("")
   end
 
+  -- Visual byte-map (types only): fields drawn on 64B cache lines. Gated to a wide window (64-col
+  -- rows don't fit the narrow panel); a straddling field turns the header RED. (W26)
+  if self.ctx.kind ~= "function" and fs and fs.state == "ok" and #fs.items > 0
+    and self.layout.state == "ok" and self.layout.data and self.layout.data.size
+    and vim.api.nvim_win_is_valid(self.win) and vim.api.nvim_win_get_width(self.win) >= 69 then
+    local bm = require("fox-symdeps.bytemap").render(fs.items, self.layout.data.size)
+    add(" ▦ Byte map" .. (bm.straddle and "  ⚠ straddles a cache line" or ""),
+      bm.straddle and "FoxSymdepsAlarm" or "FoxSymdepsHeader")
+    for _, l in ipairs(bm.lines) do add("   " .. l, "FoxSymdepsBadge") end
+    add("")
+  end
+
   -- Consumers: collapsible role → file → function tree (+ optional /filter)
   local c = self.consumers
   local vtree = self:_visible_tree()
