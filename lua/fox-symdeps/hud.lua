@@ -58,11 +58,7 @@ end
 
 function Hud:set_layout(data, state)
   self.layout = { state = state, data = data }
-  -- winbar carries the tracked symbol + its size once known (panel only)
-  if self.mode == "panel" and self.win and vim.api.nvim_win_is_valid(self.win) and data and data.size then
-    vim.wo[self.win].winbar = ("%%#FoxSymdepsTitle# %s · %d B %%*"):format(self.ctx.symbol, data.size)
-  end
-  self:render()
+  self:render() -- panel winbar is the tab bar, owned by panel.lua (set_tabbar)
 end
 
 function Hud:set_consumers(tree, state)
@@ -109,10 +105,7 @@ function Hud:reset(ctx)
   self.trace = { state = "skip", items = {} }
   self.sections = {}
   self.sel = 1
-  if self.mode == "panel" and self.win and vim.api.nvim_win_is_valid(self.win) then
-    vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. ctx.symbol .. " %*"
-  end
-  self:render()
+  self:render() -- panel winbar (tab bar) is re-set by panel.lua after reset
 end
 
 function Hud:_window()
