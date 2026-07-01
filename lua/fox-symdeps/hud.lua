@@ -16,6 +16,14 @@ local WIDTH_OPS = {
 local Hud = {}
 Hud.__index = Hud
 
+-- W20: format a size change across a live edit ("watch it shrink"). Pure.
+local function size_delta(prev, cur)
+  if not prev or not cur or prev == cur then return "" end
+  local d = cur - prev
+  return ("  (was %d, %s%d)"):format(prev, d > 0 and "+" or "", d)
+end
+M._size_delta = size_delta
+
 -- W17: turn the HUD's jumpable rows into quickfix items, BROKEN ones first (so :cnext walks the
 -- breaks first). Pure — takes the rendered items, returns a quickfix-list table.
 local function build_qf(items)
@@ -57,6 +65,8 @@ function M.open(ctx, palette, opts)
 end
 
 function Hud:set_layout(data, state)
+  -- W20: remember the prior size so a live edit shows the delta (watch it shrink)
+  if self.layout and self.layout.data and self.layout.data.size then self.prev_size = self.layout.data.size end
   self.layout = { state = state, data = data }
   self:render() -- panel winbar is the tab bar, owned by panel.lua (set_tabbar)
 end
@@ -105,6 +115,7 @@ function Hud:reset(ctx)
   self.trace = { state = "skip", items = {} }
   self.sections = {}
   self.sel = 1
+  self.prev_size = nil -- W20: don't carry a size delta across a struct switch
   self:render() -- panel winbar (tab bar) is re-set by panel.lua after reset
 end
 
@@ -218,7 +229,8 @@ function Hud:_layout_lines()
   end
   if d.state ~= "ok" or not d.data or not d.data.size then return { "layout unavailable" } end
   local sz, al = d.data.size, d.data.align or 0
-  local out = { ("size %d B · align %d%s"):format(sz, al, d.data.computed and "  (sizeof probe)" or "") }
+  local out = { ("size %d B · align %d%s%s"):format(sz, al,
+    d.data.computed and "  (sizeof probe)" or "", size_delta(self.prev_size, sz)) }
   if sz <= 64 then
     local reg = sz <= 16 and "XMM 128b" or (sz <= 32 and "YMM 256b" or "ZMM 512b")
     out[#out + 1] = ("fits 1 cache line · %d B slack · %d/line · → %s"):format(64 - sz, math.floor(64 / sz), reg)

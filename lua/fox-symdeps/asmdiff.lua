@@ -54,11 +54,14 @@ function M.analyze(lines)
 end
 
 -- strip optimization/arch flags from the base so the chosen flag-set fully controls codegen.
+-- Critically also strip -flto/-emit-llvm: with LTO, `clang -S` emits LLVM IR, not x86 asm.
 local function strip_opt(flags)
   local out = {}
   for _, f in ipairs(flags) do
     if not (f:match("^%-O") or f:match("^%-march") or f:match("^%-mavx") or f:match("^%-mtune")
-        or f:match("^%-ffast%-math") or f:match("^%-mfma") or f:match("^%-msse")) then
+        or f:match("^%-ffast%-math") or f:match("^%-mfma") or f:match("^%-msse")
+        or f:match("^%-flto") or f == "-emit-llvm" or f:match("^%-fwhole%-program%-vtables")
+        or f:match("^%-fsplit%-lto%-unit")) then
       out[#out + 1] = f
     end
   end
@@ -113,4 +116,5 @@ function M.run(bufnr, fn_name, flagset, cb)
   if not ok then pcall(os.remove, tmp); cb(nil) end
 end
 
+M._strip_opt = strip_opt -- exposed for tests
 return M

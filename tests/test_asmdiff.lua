@@ -47,5 +47,9 @@ eq(mm.vector, false, "main not vectorized")
 
 eq(#A.blocks(""), 0, "empty asm → no blocks")
 
+-- strip_opt: removes opt/arch/LTO flags (so -S emits native asm, not LLVM IR), keeps the rest
+local so = A._strip_opt({ "-std=c++17", "-O2", "-flto", "-flto=thin", "-march=native", "-emit-llvm", "-Iinc", "-DFOO" })
+eq(table.concat(so, " "), "-std=c++17 -Iinc -DFOO", "strips -O/-flto/-march/-emit-llvm, keeps std/I/D")
+
 io.write(("test_asmdiff: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

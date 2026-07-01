@@ -22,6 +22,7 @@ function M.show(fn, a, b, ra, rb, rerun)
   local lines, hls = {}, {} -- hls[lineidx] = hlgroup
   local function add(t, hl) lines[#lines + 1] = t; if hl then hls[#lines] = hl end end
   add("asm flag-diff · " .. fn, "FoxSymdepsTitle")
+  add("  isolated compile · no LTO · indicative, not the final binary", "FoxSymdepsBadge")
   add(summary(a.name, ra), ra and ra.branchless == false and "FoxSymdepsAlarm" or "FoxSymdepsBadge")
   add(summary(b.name, rb), rb and rb.branchless == false and "FoxSymdepsAlarm" or "FoxSymdepsBadge")
   add("")
