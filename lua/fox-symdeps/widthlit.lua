@@ -9,16 +9,23 @@ local MEMFN = { "memcpy", "memmove", "memset", "memcmp", "fwrite", "fread" }
 -- is this line a suspect hardcoded width literal for `size`? Pure.
 function M.is_suspect(line, size)
   if not line or not size then return false end
-  if line:find("sizeof", 1, true) then return false end -- already parameterized → safe
+  local code = line:gsub("//.*$", "")            -- drop line comments (the // ...16... noise)
+  local trimmed = vim.trim(code)
+  if trimmed == "" or trimmed:match("^%*") or trimmed:match("^/%*") then return false end -- comment-only / block line
+  if code:find("sizeof", 1, true) then return false end -- already parameterized → safe
   local n = tostring(size)
-  if not line:match("%f[%d]" .. n .. "%f[%D]") then return false end -- the size as a standalone number
+  if not code:match("%f[%d]" .. n .. "%f[%D]") then return false end -- the size as a standalone number
   -- byte-ish context (raises precision above "any line with this number")
-  if line:match("%[%s*" .. n .. "%s*%]") then return true end                 -- array dimension [N]
-  if line:find("alignas", 1, true) then return true end                       -- alignas(N)
-  if line:match("[%*%+]%s*" .. n .. "%f[%D]") or line:match("%f[%d]" .. n .. "%s*[%*%+]") then
+  local dim = "[%w_]+%s*%[%s*" .. n .. "%s*%]"                                 -- name[N]
+  if code:match("char%s+" .. dim) or code:match("u?int8_t%s+" .. dim)
+    or code:match("byte%s+" .. dim) then
+    return true                                                                -- BYTE array [N] (== N bytes; wider T[N] is element count, skip)
+  end
+  if code:find("alignas", 1, true) then return true end                       -- alignas(N)
+  if code:match("[%*%+]%s*" .. n .. "%f[%D]") or code:match("%f[%d]" .. n .. "%s*[%*%+]") then
     return true                                                                -- stride: *N / N* / +N / N+
   end
-  for _, fn in ipairs(MEMFN) do if line:find(fn, 1, true) then return true end end -- mem*/f{write,read}(..N..)
+  for _, fn in ipairs(MEMFN) do if code:find(fn, 1, true) then return true end end -- mem*/f{write,read}(..N..)
   return false
 end
 

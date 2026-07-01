@@ -18,7 +18,12 @@ ok(not W.is_suspect("char buf[sizeof(Money)];", 16), "sizeof line is safe (param
 ok(not W.is_suspect("int total = 16;", 16), "plain assignment (no byte-ish context)")
 ok(not W.is_suspect("for (i = 0; i < 160; i++)", 16), "16 inside 160 not matched (token boundary)")
 ok(not W.is_suspect("char buf[8];", 16), "wrong size not matched")
+ok(not W.is_suspect("uint64_t log[16];", 16), "wide-element array [16] = element count, not 16 bytes")
+ok(not W.is_suspect("Foo items[16];", 16), "struct array [16] not a 16-byte pin")
 ok(not W.is_suspect("x = obj16.f();", 16), "16 inside an identifier not matched")
+ok(not W.is_suspect("// char buf[16]; historical note", 16), "line comment ignored")
+ok(not W.is_suspect("   * nodes[16] in a doc block", 16), "block-comment continuation ignored")
+ok(W.is_suspect("char buf[16]; // 16-byte serialized T", 16), "real code with a trailing comment still matches")
 
 -- scan a fixture file
 local tmp = vim.fn.tempname() .. ".hpp"
