@@ -735,6 +735,24 @@ function Hud:_asm()
   if self.ctx.kind ~= "function" then
     return vim.notify("fox-symdeps · asm-diff is for functions (put the cursor on a function)", vim.log.levels.INFO)
   end
+  if self.ctx.is_template then
+    -- A template needs an explicit instantiation: the parameter (e.g. F) is
+    -- symbolic on the definition, so it can't be scraped — ask for it. `<64>`,
+    -- `64`, and `<Tick<64>>` are all tolerated.
+    return vim.ui.input({ prompt = ("asm: instantiate %s (e.g. <64>): "):format(self.ctx.symbol) }, function(args)
+      if not args or vim.trim(args) == "" then return end
+      args = vim.trim(args)
+      if not args:match("^<") then args = "<" .. args end
+      if not args:match(">$") then args = args .. ">" end
+      self:_asm_run(args)
+    end)
+  end
+  self:_asm_run("")
+end
+
+-- Run the flag-diff, with an optional template instantiation suffix (targs, e.g.
+-- "<64>"). Split from _asm so the asmview `f` re-pick reruns the same instance.
+function Hud:_asm_run(targs)
   local flags = require("fox-symdeps.asmflags")
   local a, b = flags.pair()
   -- Qualify with the enclosing namespace (resolved in context.under_cursor) so
@@ -744,10 +762,10 @@ function Hud:_asm()
   -- fallback for that case is a follow-up.
   local bufnr = self.ctx.bufnr
   local container = self.ctx.container or ""
-  local fn = (container ~= "") and (container .. "::" .. self.ctx.symbol) or self.ctx.symbol
+  local fn = ((container ~= "") and (container .. "::" .. self.ctx.symbol) or self.ctx.symbol) .. (targs or "")
   vim.notify(("fox-symdeps · asm-diff %s: %s vs %s…"):format(fn, a.name, b.name), vim.log.levels.INFO)
   local asmdiff = require("fox-symdeps.asmdiff")
-  local res, rerun = {}, function() self:_asm() end
+  local res, rerun = {}, function() self:_asm_run(targs) end
   local function done()
     if res.a and res.b then require("fox-symdeps.asmview").show(fn, a, b, res.a, res.b, rerun) end
   end

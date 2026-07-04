@@ -114,10 +114,14 @@ function M.run(bufnr, fn_name, flagset, cb)
         return vim.system(vim.list_extend({ "c++filt" }, labels), { text = true }):wait().stdout or ""
       end)
       if okd then local i = 0; for line in out:gmatch("[^\n]+") do i = i + 1; dem[i] = line end end
+      -- Template instantiations demangle with normalized args (`<64>` → `<64u>`),
+      -- so also accept the base name (sans <...>). The [[gnu::used]] probe forces
+      -- exactly one instantiation, so a base match can't grab the wrong overload.
+      local base = fn_name:gsub("%b<>%s*$", "")
       local hit
       for i, b in ipairs(blocks) do
         local name = dem[i] or b.label
-        if name:find(fn_name, 1, true) then hit = b; break end
+        if name:find(fn_name, 1, true) or (base ~= fn_name and name:find(base, 1, true)) then hit = b; break end
       end
       if not hit then return cb({ inlined = true }) end
       local a = M.analyze(hit.lines)
