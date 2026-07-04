@@ -29,6 +29,11 @@ local function spec_of(md)
   return md and md:match("([%w_:]+%b<>)") or nil
 end
 
+-- the enclosing namespace clangd notes in a hover ("// In namespace tt") → "tt", else nil.
+local function namespace_from_md(md)
+  return md and md:match("//%s*In namespace%s+([%w_:]+)") or nil
+end
+
 local function pos_params(ctx)
   return {
     textDocument = { uri = vim.uri_from_bufnr(ctx.bufnr) },
@@ -67,6 +72,19 @@ function M.layout(ctx, cb)
     else
       cb(layout, layout and "ok" or "empty")
     end
+  end, ctx.bufnr)
+end
+
+-- Recover the enclosing namespace from a symbol's clangd hover — the asm probe's
+-- fallback when the cursor is on a CALL site (outside the namespace block) so
+-- treesitter can't climb to it. cb(namespace|"") — "" for global/unresolved.
+function M.namespace_of(ctx, cb)
+  local c = client(ctx.bufnr)
+  if not c then return cb("") end
+  c:request("textDocument/hover", pos_params(ctx), function(err, result)
+    if err or not (result and result.contents) then return cb("") end
+    local md = type(result.contents) == "table" and (result.contents.value or "") or tostring(result.contents)
+    cb(namespace_from_md(md) or "")
   end, ctx.bufnr)
 end
 
@@ -157,5 +175,6 @@ end
 -- exposed for unit tests (pure parse, no nvim needed); see tests/test_parse_layout.lua
 M._parse_layout = parse_layout
 M._spec_of = spec_of
+M._namespace_from_md = namespace_from_md
 
 return M
