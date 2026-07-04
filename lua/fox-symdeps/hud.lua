@@ -207,10 +207,7 @@ function Hud:_window()
   map("w", function() self:_width_lits() end)
   map("a", function() self:_asm() end)
   map("/", function() self:_filter() end)
-  map("?", function()
-    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · s false-sharing · b break-check · w width-lits · a asm-diff · Q quickfix · y yank · q close",
-      vim.log.levels.INFO)
-  end)
+  map("?", function() self:_help() end)
   for _, k in ipairs({ "i", "o", "x", "dd", "p" }) do
     map(k, function() end)
   end
@@ -231,6 +228,54 @@ function Hud:_hide_cursor()
     vim.api.nvim_set_hl(0, "FoxSymdepsHiddenCursor", { blend = 100 })
     vim.o.guicursor = "a:FoxSymdepsHiddenCursor"
   end)
+end
+
+-- `?` help: a readable float of every key + a glossary of what each section means (tooltips).
+function Hud:_help()
+  local lines = {
+    "",
+    "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
+    "  Filter  /   filter the Consumers tree",
+    "",
+    "  Actions",
+    "    s  false-sharing scan          m  who writes this field",
+    "    b  break-check · what broke     n  doc mentions (notes)",
+    "    a  asm flag-diff (functions)    w  width-literal scan",
+    "    Q  rows → quickfix              y  yank readout",
+    "    q / <Esc>  close",
+    "",
+    "  Panel (<leader>dD)   p  follow / pin · H / L  flip tabs · x  drop tab",
+    "",
+    "  Sections",
+    "    ◆ Layout        size · align · cache-line fit · op-cost",
+    "    ⊐ Uses          types this depends on (upstream)",
+    "    ⊟ Contains      what it contains, recursively",
+    "    ◇ Consumers     who uses this  ·  Called by (functions)",
+    "    → Calls         what a function calls (outbound)",
+    "    ↪ Call trace    transitive callers",
+    "    ⚠ Blast radius  byte-layout cascade · embedders + sizeof/fwrite/memcmp",
+    "    🔥 hot-path      latency-critical · compiled instruction budget",
+    "",
+  }
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].bufhidden = "wipe"
+  local w = 0
+  for _, l in ipairs(lines) do w = math.max(w, vim.fn.strdisplaywidth(l)) end
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor", width = w + 2, height = #lines,
+    row = math.max(0, math.floor((vim.o.lines - #lines) / 2)),
+    col = math.max(0, math.floor((vim.o.columns - w) / 2)),
+    style = "minimal", border = "rounded",
+    title = { { " fox-symdeps · keys ", "FoxSymdepsTitle" } }, title_pos = "center",
+  })
+  vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal,FloatBorder:FoxSymdepsBorder,FloatTitle:FoxSymdepsTitle"
+  vim.wo[win].winblend = self.palette.winblend or 0
+  for _, k in ipairs({ "q", "<Esc>", "?" }) do
+    vim.keymap.set("n", k, function() pcall(vim.api.nvim_win_close, win, true) end,
+      { buffer = buf, nowait = true, silent = true })
+  end
 end
 
 function Hud:_move(dir)
