@@ -54,12 +54,15 @@ lens.define{
         end
         local files, count = {}, 0
         for _, f in ipairs(order) do
-          local fe = byfile[f]; fe.count = #fe.entries; fe.collapsed = true; count = count + fe.count; files[#files + 1] = fe
+          local fe = byfile[f]
+          fe.count = #fe.entries; fe.collapsed = true; fe.mtime = vim.fn.getftime(fe.file)
+          count = count + fe.count; files[#files + 1] = fe
         end
         table.sort(files, function(a, b)
+          if a.mtime ~= b.mtime then return a.mtime > b.mtime end -- most recently edited first
           local pa, pb = doc_priority(a.file), doc_priority(b.file)
-          if pa ~= pb then return pa > pb end -- high-signal docs first
-          return a.count > b.count            -- then by mention density
+          if pa ~= pb then return pa > pb end                     -- tiebreak: high-signal docs
+          return a.count > b.count                                -- then mention density
         end)
         local nfiles = #files
         if nfiles > FILE_CAP then

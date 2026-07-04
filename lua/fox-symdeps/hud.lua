@@ -371,6 +371,15 @@ function Hud:_visible_tree()
   return out
 end
 
+-- relative "edited N ago" — only files that carry .mtime (the notes lens) get a suffix; others don't.
+local function ago(t)
+  local d = os.time() - t
+  if d < 90 then return "just now" end
+  if d < 3600 then return math.floor(d / 60) .. "m ago" end
+  if d < 86400 then return math.floor(d / 3600) .. "h ago" end
+  return math.floor(d / 86400) .. "d ago"
+end
+
 function Hud:render()
   if self.closed or not vim.api.nvim_buf_is_valid(self.buf) then return end
   local lines, hls = {}, {}
@@ -391,7 +400,8 @@ function Hud:render()
   local function render_files(files)
     for _, file in ipairs(files) do
       local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
-      add_branch(("     %s %s (%d)"):format(file.collapsed and "▸" or "▾", rel, file.count),
+      local when = (file.mtime and file.mtime > 0) and ("  · " .. ago(file.mtime)) or ""
+      add_branch(("     %s %s (%d)%s"):format(file.collapsed and "▸" or "▾", rel, file.count, when),
         "file", file, "FoxSymdepsBadge")
       if not file.collapsed then
         for _, e in ipairs(file.entries) do
