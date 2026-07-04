@@ -74,6 +74,10 @@ function M.inspect(ctx, h)
       if ok and tree and not h.closed then h:set_composition(tree) end
       local oku, uses = pcall(compose.uses, ctx.symbol, root)
       if oku and uses and not h.closed then h:set_uses(uses) end
+      -- Includers: files that #include this symbol's header — the breadth Consumers misses because
+      -- references don't follow type aliases (`using Money = FixedPoint<…>`). Same grep tier as compose.
+      local oki, incs = pcall(require("fox-symdeps.includers").of, ctx.symbol, root)
+      if oki and incs and not h.closed then h:set_includers(incs) end
     end)
   end
 end

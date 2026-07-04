@@ -122,6 +122,14 @@ function Hud:set_uses(list)
   self:render()
 end
 
+-- Includers: files that #include this symbol's DEFINING header — the honest breadth signal
+-- (clangd's Consumers can't see through type aliases; #include can't be aliased away). Collapsible
+-- (default folded) since a widely-used header has dozens; the count carries the "used everywhere".
+function Hud:set_includers(list)
+  self.includers = { list = list or {}, collapsed = (self.includers and self.includers.collapsed) ~= false }
+  self:render()
+end
+
 -- Upsert a provider-contributed section (by key, so a provider can update its own section).
 -- tree: a role-tree to render · {} = show only when non-empty (calm) · nil = header-only info line.
 function Hud:set_section(key, label, tree, state)
@@ -166,6 +174,7 @@ function Hud:reset(ctx)
   self.action_hints = {} -- lens hints re-register when providers re-run on re-inspect
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
   self.uses = nil -- upstream deps; cleared on struct switch, refilled by set_uses
+  self.includers = nil -- files that #include the header; cleared on switch, refilled by set_includers
   self.sel = 1
   self.prev_size = nil -- W20: don't carry a size delta across a struct switch
   self:render() -- panel winbar (tab bar) is re-set by panel.lua after reset
@@ -284,7 +293,8 @@ function Hud:_help()
     "    ▦ Byte map      fields laid on 64 B cache lines (wide view)",
     "    ⊐ Uses          types this depends on (upstream)",
     "    ⊟ Contains      what it contains, recursively",
-    "    ◇ Consumers     who uses this  ·  Called by (functions)",
+    "    ⊃ Includers     files that #include its header (breadth · alias-proof)",
+    "    ◇ Consumers     who names this directly  ·  Called by (functions)",
     "    → Calls         what a function calls (outbound)",
     "    ↪ Call trace    transitive callers",
     "    ▲ Blast radius  byte-layout cascade · embedders + sizeof/fwrite/memcmp",
@@ -529,6 +539,22 @@ function Hud:render()
         else
           add("   " .. u.name, "FoxSymdepsBadge")
         end
+      end
+    end
+    add("")
+  end
+
+  -- Includers (types only): files that #include this symbol's header — the honest breadth answer
+  -- Consumers can't give (references don't follow `using Money = FixedPoint<…>` aliases). Sits right
+  -- above Consumers so the two read together: "47 files include it · N name it directly." Collapsible.
+  if self.ctx.kind ~= "function" and self.includers and #self.includers.list > 0 then
+    local inc = self.includers
+    add_branch((" %s ⊃ Includers (%d)"):format(inc.collapsed and "▸" or "▾", #inc.list),
+      "includers", inc, "FoxSymdepsHeader")
+    if not inc.collapsed then
+      for _, f in ipairs(inc.list) do
+        local rel = f.rel or f.file:gsub("^" .. vim.pesc(home) .. "/", "")
+        add_leaf(("     %s  :%d"):format(rel, f.line or 1), { file = f.file, line = f.line or 1 })
       end
     end
     add("")
