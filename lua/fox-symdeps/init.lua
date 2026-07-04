@@ -62,7 +62,10 @@ function M.inspect(ctx, h)
         h:set_consumers(nil, state)
       end
     end)
-    require("fox-symdeps.layout").fields(ctx, function(items, state) h:set_fields(items, state) end)
+    require("fox-symdeps.layout").fields(ctx, function(items, state)
+      h:set_fields(items, state)
+      if state == "ok" then require("fox-symdeps.diagnostics").struct_layout(ctx, items) end
+    end)
     -- W22: recursive composition ("what this struct contains") — deferred so it never blocks the open
     vim.schedule(function()
       local root = vim.fs.root(ctx.file, { ".git", "compile_commands.json" }) or vim.fn.fnamemodify(ctx.file, ":h")
@@ -80,7 +83,10 @@ end
 function M.refresh_layout(ctx, h)
   require("fox-symdeps.clangd").layout(ctx, function(data, state) h:set_layout(data, state) end)
   if ctx.kind ~= "function" then
-    require("fox-symdeps.layout").fields(ctx, function(items, state) h:set_fields(items, state) end)
+    require("fox-symdeps.layout").fields(ctx, function(items, state)
+      h:set_fields(items, state)
+      if state == "ok" then require("fox-symdeps.diagnostics").struct_layout(ctx, items) end
+    end)
   end
 end
 
@@ -168,6 +174,9 @@ function M.setup(opts)
   vim.keymap.set("n", "<leader>dr", function()
     require("fox-symdeps.browse").roam(M.config.palette)
   end, { desc = "fox-symdeps: roam to any symbol (workspace)" })
+  vim.keymap.set("n", "<leader>dg", function()
+    require("fox-symdeps.diagnostics").toggle()
+  end, { desc = "fox-symdeps: toggle straddle diagnostics" })
   vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
   vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
   vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })

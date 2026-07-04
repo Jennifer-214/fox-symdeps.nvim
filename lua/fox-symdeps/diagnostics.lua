@@ -1,0 +1,71 @@
+-- diagnostics.lua — surface analysis findings as vim.diagnostic entries so they show ambiently
+-- (inline virtual text + gutter signs + Trouble/loclist), not just inside the HUD. Opt-in via
+-- <leader>dg. Findings accumulate per buffer, keyed so re-inspecting a symbol replaces just its own
+-- group. The first consumer is cache-line straddles; width-lits / others can join the same namespace.
+local M = {}
+local NS = vim.api.nvim_create_namespace("fox_symdeps")
+local by_buf = {} -- bufnr -> { [key] = { diagnostic, ... } }
+
+M.enabled = false
+
+-- pure: which fields straddle a 64 B cache line. fields = { {name, offset, size}, ... }. Returns names.
+function M.straddlers(fields)
+  local out = {}
+  for _, f in ipairs(fields or {}) do
+    if f.offset and f.size and f.size > 0
+      and math.floor(f.offset / 64) ~= math.floor((f.offset + f.size - 1) / 64) then
+      out[#out + 1] = f.name or "?"
+    end
+  end
+  return out
+end
+
+local function republish(bufnr)
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
+  local all = {}
+  for _, ds in pairs(by_buf[bufnr] or {}) do
+    for _, d in ipairs(ds) do all[#all + 1] = d end
+  end
+  vim.diagnostic.set(NS, bufnr, all)
+end
+
+-- set the diagnostics for one group (key) in a buffer; other groups are preserved.
+function M.set(bufnr, key, diags)
+  by_buf[bufnr] = by_buf[bufnr] or {}
+  by_buf[bufnr][key] = diags
+  republish(bufnr)
+end
+
+function M.clear(bufnr)
+  by_buf[bufnr] = nil
+  if bufnr and vim.api.nvim_buf_is_valid(bufnr) then vim.diagnostic.reset(NS, bufnr) end
+end
+
+-- publish cache-line straddle findings for a struct inspected at `ctx` (fields = its layout field list).
+function M.struct_layout(ctx, fields)
+  if not M.enabled or not ctx or ctx.kind == "function" or not ctx.bufnr then return end
+  local key = "layout:" .. (ctx.symbol or "?")
+  local bad = M.straddlers(fields)
+  if #bad == 0 then return M.set(ctx.bufnr, key, {}) end
+  M.set(ctx.bufnr, key, { {
+    lnum = (ctx.line or 1) - 1,
+    col = ctx.col or 0,
+    severity = vim.diagnostic.severity.WARN,
+    source = "fox-symdeps",
+    message = ("%s: %d field(s) straddle a cache line — %s"):format(ctx.symbol or "?", #bad, table.concat(bad, ", ")),
+  } })
+end
+
+function M.toggle()
+  M.enabled = not M.enabled
+  if not M.enabled then
+    for b in pairs(by_buf) do
+      if vim.api.nvim_buf_is_valid(b) then vim.diagnostic.reset(NS, b) end
+    end
+    by_buf = {}
+  end
+  vim.notify("fox-symdeps · straddle diagnostics " ..
+    (M.enabled and "ON (inspect a struct to populate)" or "off"), vim.log.levels.INFO)
+end
+
+return M
