@@ -163,7 +163,7 @@ function Hud:_window()
   vim.bo[self.buf].bufhidden = "wipe"
   vim.bo[self.buf].filetype = "fox-symdeps"
   if self.mode == "panel" then
-    self.win = vim.api.nvim_open_win(self.buf, true, { split = "right", width = 52, style = "minimal" })
+    self.win = vim.api.nvim_open_win(self.buf, true, { split = "right", width = 60, style = "minimal" })
     vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. self.ctx.symbol .. " %*"
     vim.wo[self.win].winfixwidth = true
   else

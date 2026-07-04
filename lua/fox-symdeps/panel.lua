@@ -1,7 +1,7 @@
--- Persistent side panel with a TAB BAR. Follows the cursor as before (swaps to the symbol under
--- it), and remembers the distinct symbols it has shown as tabs. H / L flip back through them (which
--- pauses follow so it doesn't yank you away); p resumes following; x drops a tab; q closes. Reuses
--- the float's render + the shared M.inspect fetch; switching re-fetches (clangd is fast).
+-- Persistent side panel. Follows the cursor onto STRUCTS/FUNCTIONS only (not every token), remembering
+-- the distinct symbols as tabs. Flip tabs: H/L in-panel or <leader>d[ / d] anywhere (pauses follow);
+-- p resumes following; x drops a tab; q closes. The winbar shows: symbol · idx/total · follow-mode.
+-- Reuses the float's render + the shared M.inspect fetch; switching re-fetches (clangd is fast).
 local M = {}
 local P = { hud = nil, pinned = false, aug = nil, palette = {}, hist = {}, idx = 0 }
 local HIST_CAP = 8
@@ -24,17 +24,15 @@ end
 
 local function ctx_under_cursor() return require("fox-symdeps.context").under_cursor() end
 
+-- compact, non-overflowing winbar: current symbol · position · follow-mode. (The old full-strip tab
+-- list truncated in a narrow panel and read as clutter; this also finally surfaces follow vs pinned.)
 local function set_tabbar()
   if not (P.hud and P.hud.win and vim.api.nvim_win_is_valid(P.hud.win)) then return end
-  local parts = {}
-  for i, c in ipairs(P.hist) do
-    if i == P.idx then
-      parts[#parts + 1] = "%#FoxSymdepsTitle#‹" .. c.symbol .. (P.pinned and " ⏸" or "") .. "›%*"
-    else
-      parts[#parts + 1] = "%#FoxSymdepsBadge# " .. c.symbol .. " %*"
-    end
-  end
-  vim.wo[P.hud.win].winbar = table.concat(parts, "%#FoxSymdepsBadge#│%*")
+  local cur = P.hist[P.idx]
+  local sym = cur and cur.symbol or "?"
+  local pos = #P.hist > 1 and ("%%#FoxSymdepsBadge# · %d/%d%%*"):format(P.idx, #P.hist) or ""
+  local mode = P.pinned and "%#FoxSymdepsBadge#  ⏸ pinned%*" or "%#FoxSymdepsBadge#  ↻ following%*"
+  vim.wo[P.hud.win].winbar = ("%%#FoxSymdepsTitle# %s %%*%s%s"):format(sym, pos, mode)
 end
 
 local function show(ctx) -- swap the panel to ctx: reset + re-fetch + redraw the tab bar
@@ -63,7 +61,7 @@ function M.pin()
   if not (P.hud and P.hud.win and vim.api.nvim_win_is_valid(P.hud.win)) then return end
   P.pinned = not P.pinned
   set_tabbar()
-  vim.notify("fox-symdeps panel " .. (P.pinned and "pinned (H/L to flip · p to follow)" or "following cursor"),
+  vim.notify("fox-symdeps panel " .. (P.pinned and "pinned · <leader>d[ / d] flip tabs · p to follow" or "following cursor"),
     vim.log.levels.INFO)
 end
 
@@ -103,7 +101,10 @@ function M.toggle(palette)
       if not P.hud or P.hud.closed or P.pinned then return end
       if vim.api.nvim_get_current_win() == P.hud.win then return end
       local c = ctx_under_cursor()
-      if c and c.symbol ~= P.hud.ctx.symbol then
+      -- only re-track meaningful symbols (structs/functions/types) — not every local/field/keyword the
+      -- cursor passes over, which is what made the panel feel like it swapped out from under you.
+      local trackable = c and (c.kind == "struct" or c.kind == "function" or c.kind == "type")
+      if trackable and c.symbol ~= P.hud.ctx.symbol then
         P.idx = M._remember(P.hist, c, HIST_CAP)
         show(c)
       end
