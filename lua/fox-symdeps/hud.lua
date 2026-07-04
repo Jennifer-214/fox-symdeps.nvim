@@ -87,6 +87,12 @@ function Hud:set_composition(tree)
   self:render()
 end
 
+-- Upstream "Uses": the distinct types this struct depends on (the mirror of Consumers).
+function Hud:set_uses(list)
+  self.uses = list or {}
+  self:render()
+end
+
 -- Upsert a provider-contributed section (by key, so a provider can update its own section).
 function Hud:set_section(key, label, tree, state)
   for _, s in ipairs(self.sections) do
@@ -121,6 +127,7 @@ function Hud:reset(ctx)
   self.trace = { state = "skip", items = {} }
   self.sections = {}
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
+  self.uses = nil -- upstream deps; cleared on struct switch, refilled by set_uses
   self.sel = 1
   self.prev_size = nil -- W20: don't carry a size delta across a struct switch
   self:render() -- panel winbar (tab bar) is re-set by panel.lua after reset
@@ -376,6 +383,13 @@ function Hud:render()
       end
     end
     render_comp(self.composition, 0)
+    add("")
+  end
+
+  -- Upstream "Uses" (types only): distinct types this struct depends on — the mirror of Consumers.
+  if self.ctx.kind ~= "function" and self.uses ~= nil then
+    add(" ⊐ Uses" .. (#self.uses > 0 and (" (" .. #self.uses .. ")") or ""), "FoxSymdepsHeader")
+    add("   " .. (#self.uses > 0 and table.concat(self.uses, " · ") or "— (no struct deps)"), "FoxSymdepsBadge")
     add("")
   end
 

@@ -98,5 +98,20 @@ function M.tree(name, root, depth, seen)
   return out
 end
 
+-- UPSTREAM "Uses": the distinct user-defined types this struct depends on (its struct/class-typed
+-- members, template args stripped, deduped + sorted). The mirror of Consumers. Pure-ish (rg +
+-- treesitter; needs the cpp parser). content_override lets tests pass source directly.
+function M.uses(name, root, content_override)
+  local seen, out = {}, {}
+  for _, m in ipairs(M.members(name, root, content_override)) do
+    if is_struct_type(m.type) then
+      local b = base_of(m.type)
+      if not seen[b] then seen[b] = true; out[#out + 1] = b end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 M._is_struct_type = is_struct_type
 return M

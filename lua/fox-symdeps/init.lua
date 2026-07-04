@@ -45,8 +45,11 @@ function M.inspect(ctx, h)
     -- W22: recursive composition ("what this struct contains") — deferred so it never blocks the open
     vim.schedule(function()
       local root = vim.fs.root(ctx.file, { ".git", "compile_commands.json" }) or vim.fn.fnamemodify(ctx.file, ":h")
-      local ok, tree = pcall(require("fox-symdeps.compose").tree, ctx.symbol, root, 2)
+      local compose = require("fox-symdeps.compose")
+      local ok, tree = pcall(compose.tree, ctx.symbol, root, 2)
       if ok and tree and not h.closed then h:set_composition(tree) end
+      local oku, uses = pcall(compose.uses, ctx.symbol, root)
+      if oku and uses and not h.closed then h:set_uses(uses) end
     end)
   end
 end
