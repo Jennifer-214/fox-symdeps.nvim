@@ -21,6 +21,15 @@ local function search_dirs(file)
   return dirs
 end
 
+-- rank docs so the high-signal ones surface first when a symbol appears in 100+ files.
+local function doc_priority(path)
+  local p = path:lower()
+  if p:find("design_spec") or p:find("invariant") or p:find("failed_opt") then return 3 end
+  if p:find("hot_path") or p:find("changelog") or p:find("discipline") or p:find("taxonomy") or p:find("spec") then return 2 end
+  if p:find("readme") or p:find("/log") or p:find("handoff") then return 0 end
+  return 1
+end
+
 lens.define{
   name = "notes",
   applies = function(ctx) return ctx ~= nil and type(ctx.symbol) == "string" and #ctx.symbol >= 3 end,
@@ -47,6 +56,11 @@ lens.define{
         for _, f in ipairs(order) do
           local fe = byfile[f]; fe.count = #fe.entries; fe.collapsed = true; count = count + fe.count; files[#files + 1] = fe
         end
+        table.sort(files, function(a, b)
+          local pa, pb = doc_priority(a.file), doc_priority(b.file)
+          if pa ~= pb then return pa > pb end -- high-signal docs first
+          return a.count > b.count            -- then by mention density
+        end)
         local nfiles = #files
         if nfiles > FILE_CAP then
           local capped = {}
