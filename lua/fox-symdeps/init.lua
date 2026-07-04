@@ -112,8 +112,11 @@ end
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", defaults, opts or {})
   set_highlights(M.config.palette)
-  -- W14: auto-load private provider modules from the configured pack dirs
-  if #M.config.pack_dirs > 0 then require("fox-symdeps.pack").setup(M.config.pack_dirs) end
+  -- Load built-in lenses (lua/fox-symdeps/lenses/*.lua) plus any user pack_dirs (W14) through the
+  -- pack host, so :FoxSymdepsReload hot-reloads them all. Built-in lenses self-gate, so loading is
+  -- cheap even off-topic. dofile'd fresh per (re)load; provider.clear() runs first → no double-register.
+  local lenses_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h") .. "/lenses"
+  require("fox-symdeps.pack").setup(vim.list_extend({ lenses_dir }, M.config.pack_dirs))
   vim.api.nvim_create_user_command("FoxSymdepsReload", function()
     local n = require("fox-symdeps.pack").reload()
     vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
