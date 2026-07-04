@@ -382,7 +382,7 @@ function Hud:_visible_tree()
   for _, role in ipairs(tree) do
     local files = {}
     for _, file in ipairs(role.files) do
-      local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
+      local rel = file.rel or file.file:gsub("^" .. vim.pesc(home) .. "/", "")
       local matched = {}
       for _, e in ipairs(file.entries) do
         if (((e.scope or "") .. " " .. rel .. " " .. e.line):lower()):find(q, 1, true) then
@@ -430,7 +430,7 @@ function Hud:render()
   local home = vim.fn.getcwd()
   local function render_files(files)
     for _, file in ipairs(files) do
-      local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
+      local rel = file.rel or file.file:gsub("^" .. vim.pesc(home) .. "/", "")
       local when = (file.mtime and file.mtime > 0) and ("  · " .. ago(file.mtime)) or ""
       add_branch(("     %s %s (%d)%s"):format(file.collapsed and "▸" or "▾", rel, file.count, when),
         "file", file, "FoxSymdepsBadge")
