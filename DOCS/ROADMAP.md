@@ -19,29 +19,35 @@ jewel — not fox-symdeps swallowing everything.
 
 ## The planes (where each surface lives) + how they connect
 
-Several surfaces over one shared fact-spine, deliberately **NOT all in nvim.** Split by *mode*, with a
-clear data flow between them:
+Several surfaces, deliberately **NOT all in nvim.** Split by *mode*. This mirrors the engine's actual
+decouple — the `.E.2` **headless-engine ↔ viewer split** (tick-trader workspace,
+`plans/v5.15-live-readiness/`; specs `headless-engine-viewer-split-pattern`,
+`native-tui-via-mmap-readonly-pattern`, `dual-format-metrics-publication-pattern`,
+`built-in-observability-pattern`). **Reuse that mechanism; don't reinvent it.**
 
-- **Data plane — the engine itself.** Runs 24/7. PRODUCES runtime facts (per-core state, latency, fills).
-  No UI of its own; it just emits telemetry.
-- **Monitoring plane — the custom runtime UI (planned, NOT nvim).** CONSUMES the data plane's telemetry,
-  shows it live (dashboards, histograms — glanceable, always-on, wall-monitor style), AND serves those live
-  facts to anyone who asks. Its own app because live monitoring is a different interaction mode than editing.
-- **Editor plane — nvim + fox-symdeps (this repo).** DEV-TIME, static, compiled-reality analysis (layout,
-  cache lines, asm, break-check, roam). AND — the cross-plane hook — it CONSUMES live facts from the
-  monitoring plane for the symbol under inspection, so the cockpit fuses *static* (what a symbol IS) with
-  *live* (what it's DOING right now).
+- **Data plane — the headless engine.** Runs 24/7, single-writer. PUBLISHES its state to a read-only
+  **mmap shared-memory region** (lock-free seqlock reads), plus **dual-format metrics** (mmap for real-time +
+  a Prometheus `/metrics` endpoint), plus a **JSONL audit log**. Commands come back over a **UDS** channel
+  (`fox-cli`). No UI of its own.
+- **Monitoring plane — the read-only viewers.** `fox-tui` (notcurses, attaches to the mmap region) + Grafana
+  (scrapes Prometheus). Every viewer is a **read-only consumer** of the engine's published state; the
+  single-writer design keeps them decoupled *by construction* (Class-18-clean).
+- **Editor plane — nvim + fox-symdeps (this repo).** DEV-TIME static analysis (layout, asm, cache lines,
+  break-check, roam). **Cross-plane hook:** nvim becomes *another read-only mmap consumer* of the same
+  published state — a **peer of `fox-tui`**, reusing `native-tui-via-mmap-readonly-pattern` — so the cockpit
+  fuses *static* (what a symbol IS) with *live* (what it's DOING). It attaches to a read-only shared-memory
+  region; it never writes, never couples to the running engine.
 - **CLI / CI plane.** Headless fact producers + regression gates (pre-commit / CI).
 - **AI plane — libfox-intel.** Explanation / suggestion over the facts.
 
-**Data flow:** `engine → monitoring plane → (its dashboard UI) + (the nvim cockpit)`. nvim reads from the
-monitoring plane, **never from the engine directly** — dev tooling stays decoupled from the running
-production system; it only reads already-collected telemetry.
+**Data flow:** `headless engine → (mmap state + Prometheus + JSONL) → read-only consumers`. Consumers:
+`fox-tui`, Grafana, and — the hook — the nvim cockpit. They all read the *same* published state; none writes.
 
-**The join key is the symbol.** A struct/function's static facts (clangd/compile, in nvim) and its runtime
-facts (latency/fills, from the monitoring plane) share one identity — so "inspect `ExecutionCore` in nvim"
-can show its layout + asm AND pull its live per-core latency from the monitoring plane, side by side. That
-symbol-keyed fusion is what makes the planes one *system* instead of three separate apps.
+**The join key is the symbol — and the important ones already ARE the published state.** `ExecutionCore` is
+a per-core state struct the engine publishes; a hot-path function has a per-node latency histogram
+(`built-in-observability-pattern`). So "inspect `ExecutionCore` in nvim" reads its live per-core state from
+the mmap region right beside its static layout + asm. (The map is *symbol → published-state field*, not
+automatic — symbols with no published counterpart simply show static only.)
 
 ## Exploratory — roam the codebase, not just cursor-point
 
@@ -96,9 +102,10 @@ The fox-health pattern (one `lib*.a` → many surfaces) applied to the analysis:
   - *Dev-time* (`fox-bench`): microbenchmark the hot path under `perf` (cycles / cache-misses /
     branch-mispredicts), fingerprinted per commit → feeds CI regression + annotates the cockpit (measured
     cycles *next to* the static asm). Static says "gained a branch"; the bench says "and it cost 12ns."
-  - *Runtime* (live telemetry from the running engine): per-core latency / fills / state → the **monitoring
-    plane** (custom UI), NOT nvim. The nvim cockpit can *read* these back for the inspected symbol (via the
-    monitoring plane, keyed by symbol) — but it never hosts the live dashboard itself.
+  - *Runtime* (live telemetry from the running engine): per-core latency / fills / state, published to the
+    engine's read-only mmap region → `fox-tui` / Grafana, NOT nvim. The cockpit can *read* these back for the
+    inspected symbol by attaching to that same mmap as a peer of `fox-tui` (keyed by symbol) — but it never
+    hosts the live dashboard itself.
 
 ## Priority
 
