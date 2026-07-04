@@ -1,0 +1,56 @@
+-- _TEMPLATE.lua.txt — copy me to lenses/<your_feature>.lua to add a lens.
+-- (This file ends in .txt so the pack loader skips it; your copy must end in .lua.)
+--
+-- A lens contributes one (or more) sections to the symbol HUD (<leader>dd float /
+-- <leader>dD panel). It self-registers on load and self-gates via applies(), so it
+-- costs nothing when it doesn't apply. After editing, :FoxSymdepsReload to hot-reload.
+--
+-- ── the ctx you get ─────────────────────────────────────────────────────────
+--   ctx.symbol  string  the identifier under the cursor (<cword>)
+--   ctx.kind    string  "struct" | "function" | "type" | "field" | "symbol"
+--   ctx.file    string  absolute path of the buffer
+--   ctx.line    number  1-based cursor line
+--   ctx.col     number  0-based cursor column
+--   ctx.bufnr   number  buffer handle
+--
+-- ── the hud you draw on ─────────────────────────────────────────────────────
+--   hud:set_section(key, label, tree, state)
+--       key    unique string for this section (re-emit with the same key to update it)
+--       label  the header line — put a live summary here, e.g. "⚠ 2 risks"
+--       tree   the body. {} = header only. For a real tree, copy the role_node /
+--              group_by_file pattern in lenses/byte_layout_cascade.lua. Shape:
+--                { { label, role, count, collapsed,
+--                    files = { { file, count, collapsed,
+--                                entries = { { line, scope=?, broken=? }, ... } } } } }
+--       state  "loading" (spinner) | "ok" (done)
+--   hud:map_action(key, fn)   bind a single letter in the HUD to fn(). Pick a FREE
+--                             letter — already taken: q Q y w a b / ?  (and the nav keys).
+--
+local lens = require("fox-symdeps.lens")
+
+lens.define{
+  name = "template", -- unique; also the section key you set below
+
+  -- SELF-GATE: return false to stay completely silent. Gate on kind, on a tool/file
+  -- being present up-tree (see find_gcm in byte_layout_cascade.lua), on filetype, etc.
+  applies = function(ctx)
+    return ctx ~= nil and ctx.kind == "struct"
+  end,
+
+  -- DRAW: called only when applies() passed. pcall'd — an error here shows a "· error"
+  -- section instead of killing the HUD. May run async (shell out via fox-symdeps.runner)
+  -- and call set_section again when results land — see the cascade's maybe_emit().
+  render = function(ctx, hud)
+    -- minimal: a header-only section that echoes the symbol.
+    hud:set_section("template", ("template · %s (%s)"):format(ctx.symbol, ctx.kind), {}, "ok")
+  end,
+
+  -- OPTIONAL: HUD keybinds, fired with (ctx, hud).
+  actions = {
+    -- t = function(ctx, hud) vim.notify("hello from " .. ctx.symbol) end,
+  },
+}
+
+-- If your lens exposes pure helpers you want to unit-test, return them (a test dofile's
+-- the file and reads the table — see tests/test_byte_layout_cascade.lua):
+-- return { _my_pure_helper = my_pure_helper }
