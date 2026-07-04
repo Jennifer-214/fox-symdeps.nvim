@@ -80,6 +80,7 @@ function M.toggle(palette)
     on_close = function()
       if P.aug then pcall(vim.api.nvim_del_augroup_by_id, P.aug); P.aug = nil end
       if P.edit_timer then pcall(function() P.edit_timer:stop(); P.edit_timer:close() end); P.edit_timer = nil end
+      if P.prev_autoread ~= nil then vim.o.autoread = P.prev_autoread; P.prev_autoread = nil end
       P.hud = nil; P.pinned = false; P.hist, P.idx = {}, 0
     end,
   })
@@ -122,6 +123,26 @@ function M.toggle(palette)
       end))
     end,
   })
+  -- co-programming: reflect EXTERNAL edits (e.g. Claude Code in another window). autoread + checktime
+  -- on pause/focus reload files changed on disk; when the reloaded file holds the tracked symbol,
+  -- re-fetch its layout so you watch its size change (set_layout renders the delta) with no manual
+  -- step. An unsaved buffer is never clobbered — nvim warns on conflict (built-in W12 guard).
+  P.prev_autoread = vim.o.autoread
+  vim.o.autoread = true
+  vim.api.nvim_create_autocmd({ "CursorHold", "FocusGained", "BufEnter" }, {
+    group = P.aug,
+    callback = function() if P.hud and not P.hud.closed then pcall(vim.cmd, "checktime") end end,
+  })
+  vim.api.nvim_create_autocmd({ "FileChangedShellPost", "BufReadPost" }, {
+    group = P.aug,
+    callback = function(ev)
+      if not (P.hud and not P.hud.closed and P.hud.ctx and ev.file) then return end
+      if vim.fs.normalize(ev.file) == vim.fs.normalize(P.hud.ctx.file) then
+        require("fox-symdeps").refresh_layout(P.hud.ctx, P.hud)
+      end
+    end,
+  })
+
   -- close the panel when it would be the last window; clean up if closed directly
   vim.api.nvim_create_autocmd("WinClosed", {
     group = P.aug,
