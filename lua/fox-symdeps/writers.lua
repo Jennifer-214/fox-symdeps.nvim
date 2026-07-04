@@ -120,6 +120,85 @@ function M.is_write_at(content, row0, col0)
   return false
 end
 
+-- ── L0/L1 orchestration (impure: clangd + treesitter; verified live, not headless) ──────────────
+local function client(bufnr) return vim.lsp.get_clients({ bufnr = bufnr, name = "clangd" })[1] end
+
+-- documentSymbol tree → { fieldname -> {line, character} } for the struct `name`'s field children.
+local function field_positions(syms, name)
+  for _, s in ipairs(syms or {}) do
+    if s.name == name and s.children then
+      local pos = {}
+      for _, ch in ipairs(s.children) do
+        local r = ch.selectionRange or ch.range
+        if r then pos[ch.name] = r.start end
+      end
+      return pos
+    end
+    if s.children then
+      local p = field_positions(s.children, name)
+      if p then return p end
+    end
+  end
+end
+
+-- Build the write-owner picture for the struct under ctx and hand it to cb(result, state):
+--   result = { fields, writers = name->set, sites = name->{ {file,line,scope} }, risks = risk(...) }
+-- Async (clangd references per field). cb(nil, state) on no clangd / empty.
+function M.for_struct(ctx, cb)
+  local c = client(ctx.bufnr)
+  if not c then return cb(nil, "no_client") end
+  local layout = require("fox-symdeps.layout")
+  local classify = require("fox-symdeps.classify")
+  layout.fields(ctx, function(fields, fstate)
+    if fstate ~= "ok" or not fields or #fields == 0 then return cb(nil, fstate) end
+    local td = { uri = vim.uri_from_bufnr(ctx.bufnr) }
+    c:request("textDocument/documentSymbol", { textDocument = td }, function(err, syms)
+      if err or not syms then return cb(nil, "empty") end
+      local fpos = field_positions(syms, ctx.symbol) or {}
+      local writers, sites, cache = {}, {}, {}
+      local function content_of(uri)
+        local file = vim.uri_to_fname(uri)
+        if cache[file] == nil then
+          local okr, lines = pcall(vim.fn.readfile, file)
+          cache[file] = okr and table.concat(lines, "\n") or false
+        end
+        return cache[file] or nil, file
+      end
+      local pending = 0
+      local function finish()
+        cb({ fields = fields, writers = writers, sites = sites, risks = M.risk(fields, writers) }, "ok")
+      end
+      for _, f in ipairs(fields) do
+        local p = fpos[f.name]
+        if p then
+          pending = pending + 1
+          c:request("textDocument/references",
+            { textDocument = td, position = p, context = { includeDeclaration = false } },
+            function(_, refs)
+              local wset = {}
+              for _, r in ipairs(refs or {}) do
+                local content, file = content_of(r.uri)
+                if content then
+                  local row0, col0 = r.range.start.line, r.range.start.character
+                  if M.is_write_at(content, row0, col0) then
+                    local scope = classify._scope_at(content, row0, col0) or "?"
+                    wset[scope] = true
+                    sites[f.name] = sites[f.name] or {}
+                    table.insert(sites[f.name], { file = file, line = row0 + 1, scope = scope })
+                  end
+                end
+              end
+              if next(wset) then writers[f.name] = wset end
+              pending = pending - 1
+              if pending == 0 then finish() end
+            end, ctx.bufnr)
+        end
+      end
+      if pending == 0 then finish() end
+    end, ctx.bufnr)
+  end)
+end
+
 M._lines_of = lines_of
 M._to_set = to_set
 M._disjoint = disjoint
