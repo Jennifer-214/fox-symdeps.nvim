@@ -39,6 +39,19 @@ local function build_qf(items)
 end
 M._build_qf = build_qf
 
+-- Orientation-aware panel placement: a wide (landscape) editor gets a right-side
+-- strip; a tall/narrow (portrait) editor gets a bottom strip — using the ample
+-- vertical space instead of scarce width, which also dodges truncation on a
+-- portrait monitor. Pure — unit-tested via M._resolve_placement.
+local function resolve_placement(cols, lines)
+  cols, lines = cols or 80, math.max(lines or 24, 1)
+  if (cols / lines) >= 2.2 then
+    return { cfg = { split = "right", width = math.min(60, math.floor(cols * 0.4)) }, fix = "winfixwidth" }
+  end
+  return { cfg = { split = "below", height = math.max(12, math.floor(lines * 0.4)) }, fix = "winfixheight" }
+end
+M._resolve_placement = resolve_placement
+
 function M.open(ctx, palette, opts)
   opts = opts or {}
   local self = setmetatable({
@@ -163,9 +176,13 @@ function Hud:_window()
   vim.bo[self.buf].bufhidden = "wipe"
   vim.bo[self.buf].filetype = "fox-symdeps"
   if self.mode == "panel" then
-    self.win = vim.api.nvim_open_win(self.buf, true, { split = "right", width = 60, style = "minimal" })
+    -- Orientation-aware: right strip on a wide editor, bottom strip on a
+    -- portrait/narrow one (uses the ample vertical space, dodges truncation).
+    local place = resolve_placement(vim.o.columns, vim.o.lines)
+    place.cfg.style = "minimal"
+    self.win = vim.api.nvim_open_win(self.buf, true, place.cfg)
     vim.wo[self.win].winbar = "%#FoxSymdepsTitle# " .. self.ctx.symbol .. " %*"
-    vim.wo[self.win].winfixwidth = true
+    vim.wo[self.win][place.fix] = true
   else
     self.win = vim.api.nvim_open_win(self.buf, true, {
       relative = "cursor",
@@ -684,9 +701,13 @@ end
 -- w: scan the symbol's files for hardcoded width literals (== its size, byte-ish, no sizeof) and
 -- send the suspects to quickfix — the break class W18's static_assert check can't catch (W21).
 function Hud:_width_lits()
-  local size = self.layout and self.layout.data and self.layout.data.size
+  local ld = self.layout and self.layout.data
+  local size = ld and ld.size
   if not size then
-    return vim.notify("fox-symdeps · size unknown — can't scan width literals", vim.log.levels.INFO)
+    local msg = (ld and ld.is_template)
+      and "templated type — no concrete size un-instantiated; put the cursor on a concrete Foo<N> use to scan width literals"
+      or "size unknown — can't scan width literals"
+    return vim.notify("fox-symdeps · " .. msg, vim.log.levels.WARN)
   end
   local files = {}
   local function collect(tree)

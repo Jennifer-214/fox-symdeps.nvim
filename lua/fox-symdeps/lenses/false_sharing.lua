@@ -52,8 +52,17 @@ lens.define{
       vim.notify("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
       writers.for_struct(ctx, function(res, state)
         if state ~= "ok" or not res then
-          local why = state == "no_client" and "clangd not attached"
-            or "couldn't resolve fields — put the cursor on the struct's DEFINITION (same limit as Layout/Fields)"
+          local why
+          if state == "no_client" then
+            why = "clangd not attached"
+          elseif hud.layout and hud.layout.data and hud.layout.data.is_template then
+            -- templated struct: clangd gives no concrete field offsets until it's
+            -- instantiated, so field resolution comes back empty even ON the
+            -- definition. Don't blame the cursor position — name the real cause.
+            why = "templated struct — no concrete field offsets un-instantiated; put the cursor on a concrete Foo<N> use"
+          else
+            why = "couldn't resolve fields — put the cursor on the struct's DEFINITION (same limit as Layout/Fields)"
+          end
           vim.notify("fox-symdeps · false-sharing: " .. why, vim.log.levels.WARN)
         elseif #res.risks == 0 then
           vim.notify("fox-symdeps · false-sharing: none on shared lines ✓", vim.log.levels.INFO)
