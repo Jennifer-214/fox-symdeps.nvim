@@ -131,6 +131,43 @@ local function run_breakcheck(hud, tree)
   end)
 end
 
+-- #4 CHANGE-IMPACT (dry-run): categorize the enforcement sites so you can see, WITHOUT editing or
+-- compiling, what a size change breaks downstream — and crucially, LOUD vs SILENT:
+--   static_assert            → LOUD  (the compiler catches it; you can't ship it broken)
+--   fwrite/fread/memcpy/memcmp → SILENT (the serialized/compared byte count shifts with NO compile
+--                              error — old saves + wire format silently break. the real landmine.)
+local function classify_site(text)
+  local t = (text or ""):lower()
+  if t:find("static_assert", 1, true) then return "loud" end
+  if t:find("fwrite", 1, true) or t:find("fread", 1, true) or t:find("memcpy", 1, true)
+    or t:find("memcmp", 1, true) or t:find("memmove", 1, true) then return "silent" end
+  return "other"
+end
+
+local function impact_role(label, sites, root)
+  local items = {}
+  for _, s in ipairs(sites) do
+    items[#items + 1] = { file = root .. "/" .. s.file, line = s.line, scope = (s.text or ""):gsub("^%s+", ""):sub(1, 60) }
+  end
+  return role_node(label, items) -- nil when the bucket is empty
+end
+
+local function run_change_impact(hud, sites, root)
+  local buckets = { silent = {}, loud = {}, other = {} }
+  for _, s in ipairs(sites or {}) do table.insert(buckets[classify_site(s.text)], s) end
+  local tree = {}
+  local function add_role(label, cat)
+    local r = impact_role(label, buckets[cat], root)
+    if r then tree[#tree + 1] = r end
+  end
+  add_role("⚠ SILENT — wire/persist shift (fwrite/fread/memcpy/memcmp) · NO compile error", "silent")
+  add_role("Loud — static_assert (the compiler catches these)", "loud")
+  add_role("Other size-dependent sites", "other")
+  hud:set_section("impact",
+    ("🔬 Change impact · %d SILENT wire/persist ⚠ · %d loud assert(s)"):format(#buckets.silent, #buckets.loud),
+    tree, "ok")
+end
+
 lens.define{
   name = "cascade",
   -- cheap gate: only types (a function has no byte layout to cascade). The tool-presence gate
@@ -147,6 +184,7 @@ lens.define{
         hud:set_section("cascade", CASCADE_LABEL, tree, "ok")
         if hud.map_action then
           hud:map_action("b", function() run_breakcheck(hud, tree) end, "break-check")
+          hud:map_action("c", function() run_change_impact(hud, r.sites, root) end, "change-impact")
         end
         if hud.external_breakcheck then -- an external edit (Claude) → auto-check what broke across files
           hud.external_breakcheck = nil
