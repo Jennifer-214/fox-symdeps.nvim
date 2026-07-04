@@ -255,6 +255,7 @@ function Hud:_help()
     "    ↪ Call trace    transitive callers",
     "    ⚠ Blast radius  byte-layout cascade · embedders + sizeof/fwrite/memcmp",
     "    🔥 hot-path      latency-critical · compiled instruction budget",
+    "    🎯 size-budget   struct is cache-residency gated (L1d / L2 tier)",
     "",
   }
   local buf = vim.api.nvim_create_buf(false, true)
