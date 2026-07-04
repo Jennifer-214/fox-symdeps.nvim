@@ -75,11 +75,16 @@ and it's small enough to revise cheaply if even it needs to.
 ## Exploratory — roam the codebase, not just cursor-point
 
 - [x] **roam** (`<leader>dr`): clangd `workspace/symbol` fuzzy pick (functions *and* structs) → inspect.
+- [x] **includers** (`⊃` view): files that `#include` a type's defining header. The *honest breadth*
+  Consumers can't give — clangd references don't follow type aliases (`using Money = FixedPoint<…>`),
+  so a type reached only through aliases looks far narrower than it is. `#include` can't be aliased away.
+  (`FixedPoint`: Consumers 75-refs-in-header vs Includers **42 files**.) Feeds the "widest headers" cut below.
 - [ ] **aggregate health dashboard**: whole-codebase views instead of per-symbol — every cache-line
-  straddler, biggest structs by size, project-wide width-literal audit, hot-path branch budget. The marquee
+  straddler, biggest structs by size, project-wide width-literal audit, hot-path branch budget, **widest
+  headers** (most-included → the change-blast-radius ranking, reusing the includers scan). The marquee
   "where are my engine's perf/layout risks" surface.
-- [ ] **graph navigation**: fluid walk of consumers ↔ callers ↔ uses ↔ contains with breadcrumbs +
-  pin-and-compare (the panel's history is the seed).
+- [ ] **graph navigation**: fluid walk of consumers ↔ includers ↔ callers ↔ uses ↔ contains with
+  breadcrumbs + pin-and-compare (the panel's history is the seed).
 
 ## Integration — INBOUND (fox-symdeps consumes other plugins)
 
