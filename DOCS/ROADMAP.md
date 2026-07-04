@@ -17,23 +17,31 @@ consumers/callers, docs mentions) surfaced in a HUD. It is deliberately **a hub,
 The "custom IDE" is your nvim **distribution** bundling the commodity plugins + fox-symdeps as the crown
 jewel — not fox-symdeps swallowing everything.
 
-## The planes (where each surface lives)
+## The planes (where each surface lives) + how they connect
 
-The toolchain is several surfaces over one shared fact-spine — but they are deliberately **NOT all in nvim.**
-The split is by *mode*:
+Several surfaces over one shared fact-spine, deliberately **NOT all in nvim.** Split by *mode*, with a
+clear data flow between them:
 
-- **Editor plane — nvim + fox-symdeps (this repo).** DEV-TIME, static, compiled-reality analysis: layout,
-  cache lines, asm, break-check, roam, exploration. Keyboard-driven, while you write/understand code.
-- **Runtime plane — a separate custom UI (planned, NOT nvim).** Live monitoring / observability of the
-  *running* engine: per-core state, latency histograms, fills, dynamic metrics. Glanceable, always-on,
-  wall-monitor style — a fundamentally different interaction model than an editor, so it gets its own app.
+- **Data plane — the engine itself.** Runs 24/7. PRODUCES runtime facts (per-core state, latency, fills).
+  No UI of its own; it just emits telemetry.
+- **Monitoring plane — the custom runtime UI (planned, NOT nvim).** CONSUMES the data plane's telemetry,
+  shows it live (dashboards, histograms — glanceable, always-on, wall-monitor style), AND serves those live
+  facts to anyone who asks. Its own app because live monitoring is a different interaction mode than editing.
+- **Editor plane — nvim + fox-symdeps (this repo).** DEV-TIME, static, compiled-reality analysis (layout,
+  cache lines, asm, break-check, roam). AND — the cross-plane hook — it CONSUMES live facts from the
+  monitoring plane for the symbol under inspection, so the cockpit fuses *static* (what a symbol IS) with
+  *live* (what it's DOING right now).
 - **CLI / CI plane.** Headless fact producers + regression gates (pre-commit / CI).
 - **AI plane — libfox-intel.** Explanation / suggestion over the facts.
 
-fox-symdeps stays scoped to the **editor plane**. It never tries to be the runtime dashboard — that's the
-custom UI plane's job. What keeps the split from fragmenting is the shared **fact-spine** (JSON records +
-provenance): the same vocabulary flows across planes, so nothing is duplicated. (Future cross-plane link:
-inspect the per-core struct statically in nvim → jump to its live values in the runtime plane.)
+**Data flow:** `engine → monitoring plane → (its dashboard UI) + (the nvim cockpit)`. nvim reads from the
+monitoring plane, **never from the engine directly** — dev tooling stays decoupled from the running
+production system; it only reads already-collected telemetry.
+
+**The join key is the symbol.** A struct/function's static facts (clangd/compile, in nvim) and its runtime
+facts (latency/fills, from the monitoring plane) share one identity — so "inspect `ExecutionCore` in nvim"
+can show its layout + asm AND pull its live per-core latency from the monitoring plane, side by side. That
+symbol-keyed fusion is what makes the planes one *system* instead of three separate apps.
 
 ## Exploratory — roam the codebase, not just cursor-point
 
@@ -82,14 +90,15 @@ The fox-health pattern (one `lib*.a` → many surfaces) applied to the analysis:
 
 - Factor the analysis into a **shared core** (lib / CLI) emitting JSON fact-records → consumed by the
   **editor plane** (explore), the **CLI / CI plane** (fail a commit on a `sizeof`/offset change or a new
-  hot-path branch), the **AI plane** (`libfox-intel` explain/suggest), and the **runtime plane** (the
-  custom UI — see "The planes"). One core, many surfaces; each surface lives where its *mode* fits.
+  hot-path branch), the **AI plane** (`libfox-intel` explain/suggest), and the **monitoring plane** (the
+  custom runtime UI — see "The planes"). One core, many surfaces; each surface lives where its *mode* fits.
 - **Measurement — two kinds, don't conflate them:**
   - *Dev-time* (`fox-bench`): microbenchmark the hot path under `perf` (cycles / cache-misses /
     branch-mispredicts), fingerprinted per commit → feeds CI regression + annotates the cockpit (measured
     cycles *next to* the static asm). Static says "gained a branch"; the bench says "and it cost 12ns."
-  - *Runtime* (live telemetry from the running engine): per-core latency / fills / state → the **custom UI
-    plane**, NOT nvim. Same fact schema, different surface.
+  - *Runtime* (live telemetry from the running engine): per-core latency / fills / state → the **monitoring
+    plane** (custom UI), NOT nvim. The nvim cockpit can *read* these back for the inspected symbol (via the
+    monitoring plane, keyed by symbol) — but it never hosts the live dashboard itself.
 
 ## Priority
 
