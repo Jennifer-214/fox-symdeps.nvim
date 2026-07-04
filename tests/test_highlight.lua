@@ -29,7 +29,7 @@ for _, mk in ipairs(marks) do by_row[mk[2]] = mk[4].virt_text[1] end -- mk[2]=ro
 ok(by_row[1] and by_row[1][2] == "FoxSymdepsLensTag", "input tag (line 2) uses calm LensTag")
 ok(by_row[1] and by_row[1][1]:find("in", 1, true) ~= nil, "input tag text says 'in'")
 ok(by_row[4] and by_row[4][2] == "FoxSymdepsAlarm", "byte tag (line 5) uses RED Alarm")
-ok(by_row[4] and by_row[4][1]:find("⚠", 1, true) ~= nil, "byte tag glows ⚠")
+ok(by_row[4] and by_row[4][1]:find("▲", 1, true) ~= nil, "byte tag marked ▲")
 ok(by_row[5] and by_row[5][2] == "FoxSymdepsLensTag", "returned tag (line 6) stays calm")
 
 -- re-entering the buffer (BufEnter re-tags) must NOT stack duplicate tags (the buildup bug)
