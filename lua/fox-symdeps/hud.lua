@@ -325,27 +325,28 @@ function Hud:render()
       { bufline = add(text, hl), kind = "entry", loc = loc, broken = broken, qftext = vim.trim(text) }
   end
   local home = vim.fn.getcwd()
+  local function render_files(files)
+    for _, file in ipairs(files) do
+      local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
+      add_branch(("     %s %s (%d)"):format(file.collapsed and "▸" or "▾", rel, file.count),
+        "file", file, "FoxSymdepsBadge")
+      if not file.collapsed then
+        for _, e in ipairs(file.entries) do
+          local tail = e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)
+          if e.broken then
+            add_leaf("     ⚠   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
+          else
+            add_leaf("         " .. tail, { file = file.file, line = e.line })
+          end
+        end
+      end
+    end
+  end
   local function render_tree(tree)
     for _, role in ipairs(tree) do
       add_branch(("   %s %s (%d)"):format(role.collapsed and "▸" or "▾", role.label, role.count),
         "role", role, "FoxSymdepsHeader")
-      if not role.collapsed then
-        for _, file in ipairs(role.files) do
-          local rel = file.file:gsub("^" .. vim.pesc(home) .. "/", "")
-          add_branch(("     %s %s (%d)"):format(file.collapsed and "▸" or "▾", rel, file.count),
-            "file", file, "FoxSymdepsBadge")
-          if not file.collapsed then
-            for _, e in ipairs(file.entries) do
-              local tail = e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)
-              if e.broken then
-                add_leaf("     ⚠   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
-              else
-                add_leaf("         " .. tail, { file = file.file, line = e.line })
-              end
-            end
-          end
-        end
-      end
+      if not role.collapsed then render_files(role.files) end
     end
   end
 
@@ -414,7 +415,7 @@ function Hud:render()
   local total = 0
   for _, role in ipairs(vtree) do total = total + role.count end
   local count = c.state == "ok" and total or nil
-  local chdr = " ◇ Consumers" .. (count and (" (" .. count .. ")") or "")
+  local chdr = " ◇ " .. (self.ctx.kind == "function" and "Called by" or "Consumers") .. (count and (" (" .. count .. ")") or "")
   if self.filter then chdr = chdr .. "  /" .. self.filter end
   add(chdr, "FoxSymdepsHeader")
   if c.state == "loading" then
@@ -423,6 +424,8 @@ function Hud:render()
     add("   clangd not attached", "FoxSymdepsBadge")
   elseif not count or count == 0 then
     add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
+  elseif self.ctx.kind == "function" then
+    for _, role in ipairs(vtree) do render_files(role.files) end -- single "Called by" role → files directly
   else
     render_tree(vtree)
   end
