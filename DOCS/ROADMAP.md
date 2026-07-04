@@ -75,14 +75,18 @@ and it's small enough to revise cheaply if even it needs to.
 ## Exploratory — roam the codebase, not just cursor-point
 
 - [x] **roam** (`<leader>dr`): clangd `workspace/symbol` fuzzy pick (functions *and* structs) → inspect.
-- [x] **includers** (`⊃` view): files that `#include` a type's defining header. The *honest breadth*
-  Consumers can't give — clangd references don't follow type aliases (`using Money = FixedPoint<…>`),
-  so a type reached only through aliases looks far narrower than it is. `#include` can't be aliased away.
-  (`FixedPoint`: Consumers 75-refs-in-header vs Includers **42 files**.) Feeds the "widest headers" cut below.
-- [ ] **aggregate health dashboard**: whole-codebase views instead of per-symbol — every cache-line
-  straddler, biggest structs by size, project-wide width-literal audit, hot-path branch budget, **widest
-  headers** (most-included → the change-blast-radius ranking, reusing the includers scan). The marquee
-  "where are my engine's perf/layout risks" surface.
+- [x] **includers** (`⊃` view): files that `#include` a type's defining header, **grouped into
+  collapsible per-directory subsections** (land on the dir histogram; expand a dir for its files). The
+  *honest breadth* Consumers can't give — clangd references don't follow type aliases (`using Money =
+  FixedPoint<…>`), so a type reached only through aliases looks far narrower than it is. `#include` can't
+  be aliased away. (`FixedPoint`: Consumers 75-refs-in-header vs Includers **42 files** across 8 dirs.)
+- [x] **widest headers** (`<leader>dw`, first dashboard tile): rank every in-repo header by how many
+  files `#include` it — the change-blast-radius ranking (`FixedPointN.hpp` 42 · `BitmapMacros.hpp` 26 · …).
+  One `#include` scan + tally, system headers excluded, rides `vim.ui.select`. The codebase-wide inversion
+  of the per-symbol `⊃` view.
+- [ ] **aggregate health dashboard** (more tiles): every cache-line straddler, biggest structs by size,
+  project-wide width-literal audit, hot-path branch budget — joining widest-headers under one surface. The
+  marquee "where are my engine's perf/layout risks" view.
 - [ ] **graph navigation**: fluid walk of consumers ↔ includers ↔ callers ↔ uses ↔ contains with
   breadcrumbs + pin-and-compare (the panel's history is the seed).
 

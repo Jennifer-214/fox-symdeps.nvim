@@ -76,8 +76,9 @@ function M.inspect(ctx, h)
       if oku and uses and not h.closed then h:set_uses(uses) end
       -- Includers: files that #include this symbol's header — the breadth Consumers misses because
       -- references don't follow type aliases (`using Money = FixedPoint<…>`). Same grep tier as compose.
-      local oki, incs = pcall(require("fox-symdeps.includers").of, ctx.symbol, root)
-      if oki and incs and not h.closed then h:set_includers(incs) end
+      local inc = require("fox-symdeps.includers")
+      local oki, incs = pcall(inc.of, ctx.symbol, root)
+      if oki and incs and not h.closed then h:set_includers(inc.group_by_dir(incs, root), #incs) end
     end)
   end
 end
@@ -178,6 +179,9 @@ function M.setup(opts)
   vim.keymap.set("n", "<leader>dr", function()
     require("fox-symdeps.browse").roam(M.config.palette)
   end, { desc = "fox-symdeps: roam to any symbol (workspace)" })
+  vim.keymap.set("n", "<leader>dw", function()
+    require("fox-symdeps.browse").widest(M.config.palette)
+  end, { desc = "fox-symdeps: widest headers (include blast-radius)" })
   vim.keymap.set("n", "<leader>dg", function()
     require("fox-symdeps.diagnostics").toggle()
   end, { desc = "fox-symdeps: toggle straddle diagnostics" })

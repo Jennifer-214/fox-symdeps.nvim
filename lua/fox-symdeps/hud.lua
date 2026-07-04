@@ -39,6 +39,16 @@ local function build_qf(items)
 end
 M._build_qf = build_qf
 
+-- Open the quickfix pane at the bottom + a buffer-local `q` to dismiss it. Vim doesn't close the
+-- quickfix on `q` by default, so the "section at the bottom" the HUD spawns would otherwise strand.
+-- Buffer-local to the qf buffer → doesn't touch the user's global maps.
+local function open_quickfix()
+  vim.cmd("botright copen")
+  local qbuf = vim.api.nvim_get_current_buf()
+  vim.keymap.set("n", "q", "<cmd>cclose<cr>",
+    { buffer = qbuf, nowait = true, silent = true, desc = "fox-symdeps: close quickfix" })
+end
+
 -- Orientation-aware panel placement: a wide (landscape) editor gets a right-side
 -- strip; a tall/narrow (portrait) editor gets a bottom strip — using the ample
 -- vertical space instead of scarce width, which also dodges truncation on a
@@ -123,10 +133,10 @@ function Hud:set_uses(list)
 end
 
 -- Includers: files that #include this symbol's DEFINING header — the honest breadth signal
--- (clangd's Consumers can't see through type aliases; #include can't be aliased away). Collapsible
--- (default folded) since a widely-used header has dozens; the count carries the "used everywhere".
-function Hud:set_includers(list)
-  self.includers = { list = list or {}, collapsed = (self.includers and self.includers.collapsed) ~= false }
+-- (clangd's Consumers can't see through type aliases; #include can't be aliased away). Grouped into
+-- collapsible per-directory subsections (each dir folded by default → you land on the dir histogram).
+function Hud:set_includers(groups, total)
+  self.includers = { groups = groups or {}, total = total or 0 }
   self:render()
 end
 
@@ -273,6 +283,7 @@ function Hud:_help()
   local lines = {
     "",
     "  Open    <leader>dd float · <leader>dD panel · <leader>dS browse structs · <leader>du use-lens",
+    "          <leader>dr roam (any symbol) · <leader>dw widest headers · <leader>dg straddle diagnostics",
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
     "  Filter  /   filter the Consumers tree",
@@ -545,16 +556,18 @@ function Hud:render()
   end
 
   -- Includers (types only): files that #include this symbol's header — the honest breadth answer
-  -- Consumers can't give (references don't follow `using Money = FixedPoint<…>` aliases). Sits right
-  -- above Consumers so the two read together: "47 files include it · N name it directly." Collapsible.
-  if self.ctx.kind ~= "function" and self.includers and #self.includers.list > 0 then
-    local inc = self.includers
-    add_branch((" %s ⊃ Includers (%d)"):format(inc.collapsed and "▸" or "▾", #inc.list),
-      "includers", inc, "FoxSymdepsHeader")
-    if not inc.collapsed then
-      for _, f in ipairs(inc.list) do
-        local rel = f.rel or f.file:gsub("^" .. vim.pesc(home) .. "/", "")
-        add_leaf(("     %s  :%d"):format(rel, f.line or 1), { file = f.file, line = f.line or 1 })
+  -- Consumers can't give (references don't follow `using Money = FixedPoint<…>` aliases). Grouped
+  -- into per-directory subsections (each a collapsible dir → file leaves), sitting right above
+  -- Consumers so the two read together: "42 files include it · N name it directly."
+  if self.ctx.kind ~= "function" and self.includers and self.includers.total > 0 then
+    add((" ⊃ Includers (%d)"):format(self.includers.total), "FoxSymdepsHeader")
+    for _, g in ipairs(self.includers.groups) do
+      add_branch(("   %s %s (%d)"):format(g.collapsed and "▸" or "▾", g.dir, g.count),
+        "incdir", g, "FoxSymdepsBadge")
+      if not g.collapsed then
+        for _, f in ipairs(g.files) do
+          add_leaf(("       %s  :%d"):format(f.base or f.rel, f.line or 1), { file = f.file, line = f.line or 1 })
+        end
       end
     end
     add("")
@@ -711,8 +724,8 @@ function Hud:_to_quickfix()
   end
   vim.fn.setqflist({}, " ", { title = "fox-symdeps: " .. (self.ctx.symbol or ""), items = qf })
   if self.mode == "float" then self:close() end
-  vim.cmd("botright copen")
-  vim.notify(("fox-symdeps · %d sites → quickfix (:cnext / :cprev)"):format(#qf), vim.log.levels.INFO)
+  open_quickfix()
+  vim.notify(("fox-symdeps · %d sites → quickfix (:cnext / :cprev · q closes)"):format(#qf), vim.log.levels.INFO)
 end
 
 -- y: yank the whole readout to the system clipboard (+ unnamed) — copy the panel as text
@@ -749,10 +762,15 @@ function Hud:_width_lits()
   end
   local qf = {}
   for _, s in ipairs(sus) do qf[#qf + 1] = { filename = s.file, lnum = s.line, col = 1, text = s.text } end
+  -- cluster by directory (then file, then line) so the quickfix reads grouped instead of scan-order.
+  table.sort(qf, function(a, b)
+    if a.filename ~= b.filename then return a.filename < b.filename end
+    return a.lnum < b.lnum
+  end)
   vim.fn.setqflist({}, " ", { title = ("fox-symdeps width-literals %dB: %s"):format(size, self.ctx.symbol or ""), items = qf })
   if self.mode == "float" then self:close() end
-  vim.cmd("botright copen")
-  vim.notify(("fox-symdeps · %d width-literal suspect(s) → quickfix (review — heuristic)"):format(#sus), vim.log.levels.INFO)
+  open_quickfix()
+  vim.notify(("fox-symdeps · %d width-literal suspect(s) → quickfix (review — heuristic · q closes)"):format(#sus), vim.log.levels.INFO)
 end
 
 -- a: asm flag-diff for a FUNCTION under cursor — compile under two flag-sets, show insns/branches/

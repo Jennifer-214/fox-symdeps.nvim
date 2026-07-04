@@ -30,5 +30,24 @@ ok(#I.parse({}) == 0, "empty → empty")
 local out2 = I.parse({ "src/a/b.hpp:9:#include \"x.hpp\"" })
 ok(out2[1] and out2[1].file == "src/a/b.hpp" and out2[1].line == 9, "relative path parsed")
 
+-- group_by_dir: root-relative dir buckets, sorted, each collapsed by default, basename extracted
+local flat = {
+  { file = "/ws/CoreFrameworks/ExecutionCore.hpp", line = 44 },
+  { file = "/ws/CoreFrameworks/Order.hpp", line = 45 },
+  { file = "/ws/DataStream/BinanceCrypto.hpp", line = 46 },
+  { file = "/ws/CoreFrameworks/EngineSharded/Run.hpp", line = 64 }, -- nested → own dir bucket
+}
+local groups = I.group_by_dir(flat, "/ws")
+ok(#groups == 3, "3 directory buckets")
+ok(groups[1].dir == "CoreFrameworks" and groups[1].count == 2, "CoreFrameworks bucket sorted first, count 2")
+ok(groups[2].dir == "CoreFrameworks/EngineSharded", "nested dir is its own bucket")
+ok(groups[3].dir == "DataStream", "DataStream bucket last (sorted)")
+ok(groups[1].collapsed == true, "dir buckets default collapsed")
+ok(groups[1].files[1].base == "ExecutionCore.hpp" and groups[1].files[1].rel == "CoreFrameworks/ExecutionCore.hpp",
+  "basename + root-relative rel extracted")
+ok(groups[1].files[1].rel < groups[1].files[2].rel, "files sorted within a bucket")
+ok(#I.group_by_dir({}, "/ws") == 0, "empty → no buckets")
+ok(I.group_by_dir({ { file = "/ws/top.hpp", line = 1 } }, "/ws")[1].dir == ".", "root-level file → '.' bucket")
+
 io.write(("test_includers: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -61,6 +61,32 @@ function M.includers(header, root)
   return list
 end
 
+-- pure: flat includer list → directory-grouped, collapsible buckets. `root` is stripped so the dir
+-- headers read relative ("CoreFrameworks", "ML_Headers"). Sorted by dir, then file within a dir.
+-- Each group defaults collapsed (the dir histogram is the calm landing view; expand to see files).
+-- Returns { { dir, count, collapsed, files = { {file, line, rel, base}, ... } }, ... }.
+function M.group_by_dir(list, root)
+  local prefix = root and (root:gsub("/*$", "") .. "/") or ""
+  local by, order = {}, {}
+  for _, f in ipairs(list or {}) do
+    local rel = f.file
+    if prefix ~= "" and rel:sub(1, #prefix) == prefix then rel = rel:sub(#prefix + 1) end
+    local dir = rel:match("^(.*)/[^/]+$") or "."
+    if not by[dir] then by[dir] = { dir = dir, collapsed = true, files = {} }; order[#order + 1] = dir end
+    local g = by[dir]
+    g.files[#g.files + 1] = { file = f.file, line = f.line, rel = rel, base = rel:match("[^/]+$") or rel }
+  end
+  table.sort(order)
+  local out = {}
+  for _, d in ipairs(order) do
+    local g = by[d]
+    table.sort(g.files, function(a, b) return a.rel < b.rel end)
+    g.count = #g.files
+    out[#out + 1] = g
+  end
+  return out
+end
+
 -- symbol → sorted { {file, line}, ... } of files that #include its defining header (+ the header
 -- path). {} if the header can't be located.
 function M.of(symbol, root)
