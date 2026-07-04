@@ -52,7 +52,9 @@ lens.define{
       vim.notify("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
       writers.for_struct(ctx, function(res, state)
         if state ~= "ok" or not res then
-          vim.notify("fox-symdeps · false-sharing: " .. tostring(state), vim.log.levels.WARN)
+          local why = state == "no_client" and "clangd not attached"
+            or "couldn't resolve fields — put the cursor on the struct's DEFINITION (same limit as Layout/Fields)"
+          vim.notify("fox-symdeps · false-sharing: " .. why, vim.log.levels.WARN)
         elseif #res.risks == 0 then
           vim.notify("fox-symdeps · false-sharing: none on shared lines ✓", vim.log.levels.INFO)
         else
