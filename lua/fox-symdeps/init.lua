@@ -10,6 +10,21 @@ local defaults = {
   pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
 }
 
+-- callees {name,file,line} → a one-role "Calls" tree for the HUD (file-grouped, jumpable).
+local function calls_tree(items)
+  local byfile, order = {}, {}
+  for _, it in ipairs(items) do
+    if not byfile[it.file] then byfile[it.file] = { file = it.file, entries = {} }; order[#order + 1] = it.file end
+    table.insert(byfile[it.file].entries, { line = it.line, scope = it.name })
+  end
+  local files, count = {}, 0
+  for _, f in ipairs(order) do
+    local fe = byfile[f]
+    fe.count = #fe.entries; fe.collapsed = fe.count > 5; count = count + fe.count; files[#files + 1] = fe
+  end
+  return { { label = "Calls", role = "calls", count = count, collapsed = false, files = files } }
+end
+
 -- Fire the async queries for `ctx` and stream results into the HUD/panel `h`. Reusable so the
 -- transient float and the persistent panel share one fetch engine.
 function M.inspect(ctx, h)
@@ -31,6 +46,11 @@ function M.inspect(ctx, h)
     end)
     h:set_trace(nil, "loading")
     require("fox-symdeps.trace").incoming(ctx, function(items, state) h:set_trace(items, state) end)
+    -- Calls: the outbound direction (what this function calls), mirror of "Called by"
+    h:set_calls(nil, "loading")
+    clangd.callees(ctx, function(items, state)
+      if state == "ok" and items and #items > 0 then h:set_calls(calls_tree(items), "ok") else h:set_calls(nil, state) end
+    end)
   else
     -- types: classify each reference by role + map the byte layout
     clangd.consumers(ctx, function(items, state)

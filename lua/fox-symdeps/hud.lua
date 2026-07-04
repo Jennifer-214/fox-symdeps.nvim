@@ -76,6 +76,12 @@ function Hud:set_consumers(tree, state)
   self:render()
 end
 
+-- Outbound calls (functions): what this function calls — the mirror of "Called by".
+function Hud:set_calls(tree, state)
+  self.calls = { state = state, tree = tree or {} }
+  self:render()
+end
+
 function Hud:set_fields(items, state)
   self.fields = { state = state, items = items or {} }
   self:render()
@@ -131,6 +137,7 @@ function Hud:reset(ctx)
   self.fields = { state = "loading", items = {} }
   self.consumers = { state = "loading", tree = {} }
   self.trace = { state = "skip", items = {} }
+  self.calls = nil -- outbound calls (functions); refilled by set_calls
   self.sections = {}
   self.action_hints = {} -- lens hints re-register when providers re-run on re-inspect
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
@@ -418,6 +425,20 @@ function Hud:render()
     add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
   else
     render_tree(vtree)
+  end
+
+  -- Calls (functions only): what this function calls — the outbound direction (mirror of "Called by")
+  local calls = self.calls
+  if self.ctx.kind == "function" and calls and (calls.state == "loading" or (calls.state == "ok" and #calls.tree > 0)) then
+    add("")
+    local n = 0
+    for _, role in ipairs(calls.tree) do n = n + (role.count or 0) end
+    add(" → Calls" .. (calls.state == "ok" and (" (" .. n .. ")") or ""), "FoxSymdepsHeader")
+    if calls.state == "loading" then
+      add("   " .. SPIN[self.spin] .. " walking…", "FoxSymdepsBadge")
+    else
+      render_tree(calls.tree)
+    end
   end
 
   -- Call trace (functions only): transitive callers, indented by depth

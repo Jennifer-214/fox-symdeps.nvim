@@ -124,6 +124,36 @@ function M.callers(ctx, cb)
   end, ctx.bufnr)
 end
 
+-- Callees via clangd call hierarchy: what this function *calls* — the outbound direction, mirror of
+-- callers. prepareCallHierarchy → outgoingCalls; each callee is its own function.
+function M.callees(ctx, cb)
+  local c = client(ctx.bufnr)
+  if not c then
+    return cb(nil, "no_client")
+  end
+  c:request("textDocument/prepareCallHierarchy", pos_params(ctx), function(err, result)
+    if err or not (result and result[1]) then
+      return cb(nil, "empty")
+    end
+    c:request("callHierarchy/outgoingCalls", { item = result[1] }, function(e2, calls)
+      if e2 or not calls then
+        return cb(nil, "empty")
+      end
+      local items = {}
+      for _, call in ipairs(calls) do
+        local f = call.to
+        local range = f.selectionRange or f.range
+        items[#items + 1] = {
+          name = f.name,
+          file = vim.uri_to_fname(f.uri),
+          line = range.start.line + 1,
+        }
+      end
+      cb(items, "ok")
+    end, ctx.bufnr)
+  end, ctx.bufnr)
+end
+
 -- exposed for unit tests (pure parse, no nvim needed); see tests/test_parse_layout.lua
 M._parse_layout = parse_layout
 M._spec_of = spec_of
