@@ -34,6 +34,28 @@ local function namespace_from_md(md)
   return md and md:match("//%s*In namespace%s+([%w_:]+)") or nil
 end
 
+-- clangd workspace/symbol result (SymbolInformation[]) → { {name, kind, container, file, line, col} }.
+-- Skips entries with no resolvable location. Pure (vim.uri_to_fname only).
+local function parse_workspace_symbols(result)
+  local out = {}
+  for _, s in ipairs(result or {}) do
+    local loc = s.location or {}
+    local uri = loc.uri or loc.targetUri
+    local range = loc.range or loc.targetSelectionRange
+    if uri and range and range.start then
+      out[#out + 1] = {
+        name = s.name,
+        kind = s.kind,
+        container = s.containerName or "",
+        file = vim.uri_to_fname(uri),
+        line = range.start.line + 1,
+        col = range.start.character or 0,
+      }
+    end
+  end
+  return out
+end
+
 local function pos_params(ctx)
   return {
     textDocument = { uri = vim.uri_from_bufnr(ctx.bufnr) },
@@ -86,6 +108,17 @@ function M.namespace_of(ctx, cb)
     local md = type(result.contents) == "table" and (result.contents.value or "") or tostring(result.contents)
     cb(namespace_from_md(md) or "")
   end, ctx.bufnr)
+end
+
+-- workspace/symbol fuzzy search across the whole index — structs, functions,
+-- everything. The "go to symbol in workspace" primitive behind roam. cb(list|nil).
+function M.workspace_symbols(query, cb)
+  local c = vim.lsp.get_clients({ name = "clangd" })[1]
+  if not c then return cb(nil) end
+  c:request("workspace/symbol", { query = query }, function(err, result)
+    if err or not result then return cb(nil) end
+    cb(parse_workspace_symbols(result))
+  end)
 end
 
 function M.consumers(ctx, cb)
@@ -176,5 +209,6 @@ end
 M._parse_layout = parse_layout
 M._spec_of = spec_of
 M._namespace_from_md = namespace_from_md
+M._parse_workspace_symbols = parse_workspace_symbols
 
 return M

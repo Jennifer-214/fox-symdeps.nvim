@@ -44,4 +44,31 @@ end
 
 M._parse = parse -- for tests
 
+-- roam: fuzzy-pick ANY symbol (struct OR function, anywhere in the project) via
+-- clangd's workspace/symbol index, then inspect it in the cockpit. The IDE
+-- "go to symbol in workspace" → analyze. Rides vim.ui.select (so your fzf).
+local SYMBOL_ICON = { [5] = "◇", [23] = "◇", [12] = "→", [6] = "→", [10] = "▢", [11] = "▢" }
+function M.roam(palette)
+  vim.ui.input({ prompt = "fox-symdeps · roam to symbol: " }, function(query)
+    if not query or vim.trim(query) == "" then return end
+    require("fox-symdeps.clangd").workspace_symbols(query, function(syms)
+      if not syms or #syms == 0 then
+        return vim.notify("fox-symdeps · no symbols match '" .. query .. "' (is clangd attached?)", vim.log.levels.INFO)
+      end
+      vim.ui.select(syms, {
+        prompt = "fox-symdeps · inspect:",
+        format_item = function(s)
+          local qn = (s.container ~= "" and (s.container .. "::") or "") .. s.name
+          return ("%s %-34s %s:%d"):format(SYMBOL_ICON[s.kind] or "·", qn, vim.fn.fnamemodify(s.file, ":."), s.line)
+        end,
+      }, function(choice)
+        if not choice then return end
+        vim.cmd.edit(vim.fn.fnameescape(choice.file))
+        pcall(vim.api.nvim_win_set_cursor, 0, { choice.line, choice.col })
+        require("fox-symdeps").inspect_cursor()
+      end)
+    end)
+  end)
+end
+
 return M

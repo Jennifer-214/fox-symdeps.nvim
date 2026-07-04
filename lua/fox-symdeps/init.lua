@@ -84,7 +84,9 @@ function M.refresh_layout(ctx, h)
   end
 end
 
-local function trigger()
+-- open the float HUD on the symbol under the cursor + fire the fetch. Public so
+-- browse/roam can reuse it after landing the cursor on a picked symbol.
+function M.inspect_cursor()
   local ctx = require("fox-symdeps.context").under_cursor()
   if not ctx then
     return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
@@ -92,6 +94,7 @@ local function trigger()
   local neotree = require("fox-symdeps.neotree")
   local h = require("fox-symdeps.hud").open(ctx, M.config.palette, { on_close = function() neotree.clear() end })
   M.inspect(ctx, h)
+  return h
 end
 
 -- W13 use-lens: project the symbol-under-cursor's uses onto the source as eol role tags.
@@ -155,13 +158,16 @@ function M.setup(opts)
     group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),
     callback = function() set_highlights(M.config.palette) end,
   })
-  vim.keymap.set("n", M.config.key, trigger, { desc = "fox-symdeps: symbol HUD" })
+  vim.keymap.set("n", M.config.key, M.inspect_cursor, { desc = "fox-symdeps: symbol HUD" })
   vim.keymap.set("n", "<leader>dD", function()
     require("fox-symdeps.panel").toggle(M.config.palette)
   end, { desc = "fox-symdeps: live panel (track symbol)" })
   vim.keymap.set("n", "<leader>dS", function()
     require("fox-symdeps.browse").browse(M.config.palette)
   end, { desc = "fox-symdeps: browse structs" })
+  vim.keymap.set("n", "<leader>dr", function()
+    require("fox-symdeps.browse").roam(M.config.palette)
+  end, { desc = "fox-symdeps: roam to any symbol (workspace)" })
   vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
   vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
   vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })
