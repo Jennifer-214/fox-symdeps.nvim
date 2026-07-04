@@ -68,6 +68,16 @@ function Hud:set_layout(data, state)
   -- W20: remember the prior size so a live edit shows the delta (watch it shrink)
   if self.layout and self.layout.data and self.layout.data.size then self.prev_size = self.layout.data.size end
   self.layout = { state = state, data = data }
+  -- ambient alert: an EXTERNAL edit (Claude in another window) that moved sizeof — notify the delta and
+  -- flag a cache-line boundary crossing (the fingerprint / false-sharing concern), even off-panel.
+  if self.external_reload and data and data.size and self.prev_size and data.size ~= self.prev_size then
+    local d = data.size - self.prev_size
+    local crossed = math.floor((self.prev_size - 1) / 64) ~= math.floor((data.size - 1) / 64)
+    vim.notify(("fox-symdeps · %s: sizeof %d→%d (%s%d)%s"):format(
+      self.ctx.symbol, self.prev_size, data.size, d > 0 and "+" or "", d,
+      crossed and "  ⚠ crossed a cache line" or ""), vim.log.levels.WARN)
+  end
+  self.external_reload = nil
   self:render() -- panel winbar is the tab bar, owned by panel.lua (set_tabbar)
 end
 

@@ -145,6 +145,10 @@ lens.define{
         if hud.map_action then
           hud:map_action("b", function() run_breakcheck(hud, tree) end, "break-check")
         end
+        if hud.external_breakcheck then -- an external edit (Claude) → auto-check what broke across files
+          hud.external_breakcheck = nil
+          run_breakcheck(hud, tree)
+        end
       end
     end
     runner.run({ gcm, "--structs", ctx.symbol }, root, function(l) r.structs = l and runner.parse_structs(l) or {}; maybe_emit() end)

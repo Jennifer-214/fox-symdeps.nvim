@@ -138,7 +138,11 @@ function M.toggle(palette)
     callback = function(ev)
       if not (P.hud and not P.hud.closed and P.hud.ctx and ev.file) then return end
       if vim.fs.normalize(ev.file) == vim.fs.normalize(P.hud.ctx.file) then
-        require("fox-symdeps").refresh_layout(P.hud.ctx, P.hud)
+        P.hud.external_reload = true -- set_layout ambient-notifies a sizeof change
+        P.hud.external_breakcheck = true -- cascade auto-runs break-check → what broke across files
+        -- FULL re-inspect (not just layout): the cross-file cascade + consumers refresh too, so a
+        -- seemingly-minor external change shows its blast radius, not only its new size.
+        require("fox-symdeps").inspect(P.hud.ctx, P.hud)
       end
     end,
   })
