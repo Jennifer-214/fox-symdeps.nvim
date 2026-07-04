@@ -160,8 +160,8 @@ local function run_change_impact(hud, sites, root)
     local r = impact_role(label, buckets[cat], root)
     if r then tree[#tree + 1] = r end
   end
-  add_role("⚠ SILENT — wire/persist shift (fwrite/fread/memcpy/memcmp) · NO compile error", "silent")
-  add_role("Loud — static_assert (the compiler catches these)", "loud")
+  add_role("⚠ SILENT · wire/persist shift · no compile error", "silent")
+  add_role("Loud · static_assert (compiler-caught)", "loud")
   add_role("Other size-dependent sites", "other")
   hud:set_section("impact",
     ("🔬 Change impact · %d SILENT wire/persist ⚠ · %d loud assert(s)"):format(#buckets.silent, #buckets.loud),
@@ -181,7 +181,7 @@ lens.define{
     local function maybe_emit()
       if r.structs and r.transitive and r.sites then
         local tree = build_tree(r.structs, r.transitive, r.sites, root)
-        hud:set_section("cascade", CASCADE_LABEL, tree, "ok")
+        hud:set_section("cascade", CASCADE_LABEL .. "   ·  b break-check · c change-impact", tree, "ok")
         if hud.map_action then
           hud:map_action("b", function() run_breakcheck(hud, tree) end, "break-check")
           hud:map_action("c", function() run_change_impact(hud, r.sites, root) end, "change-impact")
