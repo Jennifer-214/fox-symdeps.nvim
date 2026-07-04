@@ -73,6 +73,17 @@ or drop `dir` for the published remote):
 Checks `clangd` on `PATH`, a client attached, a reachable `compile_commands.json`, and the
 optional which-key / neo-tree integrations.
 
+## Testing
+
+```
+make test          # or:  bash tests/run.sh
+```
+
+Runs the full headless suite (`tests/test_*.lua`, 21 tests). The runner puts the cpp treesitter
+parser on the runtimepath so the treesitter-based tests (classify, compose, write-detection) run —
+a bare `nvim --clean` has none. Pure-logic tests (byte-map, false-sharing risk, parsers) need no
+parser and run anywhere. A failing test prints its tail; exit code is non-zero on any failure.
+
 ## Theming
 
 The front-end ships no palette of its own — colors arrive through `opts.palette`, so it
@@ -81,7 +92,16 @@ terminal's opacity), and highlights re-apply on `ColorScheme`.
 
 ## Status
 
-The clangd + treesitter core: enriched layout, the field cache-line map, role-classified
-consumers, callers via call hierarchy, neo-tree consumer-count badges, and a picker UI.
-Planned: a transitive call trace, a persistent live panel that updates as you edit, and an
-optional project-specific provider for richer byte-layout blast-radius analysis.
+Active personal tool. On top of the clangd + treesitter core (layout, field cache-line map,
+role-classified consumers):
+
+- **Uses** (upstream types), **→ Calls** + **Called by**, transitive **Call trace**
+- a persistent **live panel** that reflects *external* edits — when another process (e.g. an AI
+  in a second window) writes the tracked file, the cross-file cascade + break-check re-run and a
+  `sizeof` delta alerts (the co-programming loop)
+- **byte-layout blast radius** cascade with an auto break-check (what a minor change broke, cross-file)
+- on-demand lenses: `s` false-sharing · `b` break-check · `m` who-writes · `n` doc-notes
+- a **hot-path** instruction-budget readout, a keybind-hint footer, and a `?` help/glossary float
+
+Extensible: drop a `lenses/*.lua` file that self-registers via `lens.define` — see
+`lenses/_TEMPLATE.lua.txt`.
