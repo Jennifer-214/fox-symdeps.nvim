@@ -17,6 +17,24 @@ consumers/callers, docs mentions) surfaced in a HUD. It is deliberately **a hub,
 The "custom IDE" is your nvim **distribution** bundling the commodity plugins + fox-symdeps as the crown
 jewel — not fox-symdeps swallowing everything.
 
+## The planes (where each surface lives)
+
+The toolchain is several surfaces over one shared fact-spine — but they are deliberately **NOT all in nvim.**
+The split is by *mode*:
+
+- **Editor plane — nvim + fox-symdeps (this repo).** DEV-TIME, static, compiled-reality analysis: layout,
+  cache lines, asm, break-check, roam, exploration. Keyboard-driven, while you write/understand code.
+- **Runtime plane — a separate custom UI (planned, NOT nvim).** Live monitoring / observability of the
+  *running* engine: per-core state, latency histograms, fills, dynamic metrics. Glanceable, always-on,
+  wall-monitor style — a fundamentally different interaction model than an editor, so it gets its own app.
+- **CLI / CI plane.** Headless fact producers + regression gates (pre-commit / CI).
+- **AI plane — libfox-intel.** Explanation / suggestion over the facts.
+
+fox-symdeps stays scoped to the **editor plane**. It never tries to be the runtime dashboard — that's the
+custom UI plane's job. What keeps the split from fragmenting is the shared **fact-spine** (JSON records +
+provenance): the same vocabulary flows across planes, so nothing is duplicated. (Future cross-plane link:
+inspect the per-core struct statically in nvim → jump to its live values in the runtime plane.)
+
 ## Exploratory — roam the codebase, not just cursor-point
 
 - [x] **roam** (`<leader>dr`): clangd `workspace/symbol` fuzzy pick (functions *and* structs) → inspect.
@@ -62,12 +80,16 @@ jewel — not fox-symdeps swallowing everything.
 
 The fox-health pattern (one `lib*.a` → many surfaces) applied to the analysis:
 
-- Factor the analysis into a **shared core** (lib / CLI) → plugin (explore) + CLI (script) +
-  **CI / pre-commit gate** (fail on a `sizeof`/offset change or a new hot-path branch) + **AI layer**
-  (explain/suggest via `libfox-intel`) + **dashboard** (monitor).
-- **Measurement half** — the biggest gap: a `fox-bench` that runs the hot path under `perf` (cycles /
-  cache-misses / branch-mispredicts) and tracks it across commits → show measured cycles *next to* the static
-  asm in the cockpit. Static says "gained a branch"; dynamic says "and it cost 12ns."
+- Factor the analysis into a **shared core** (lib / CLI) emitting JSON fact-records → consumed by the
+  **editor plane** (explore), the **CLI / CI plane** (fail a commit on a `sizeof`/offset change or a new
+  hot-path branch), the **AI plane** (`libfox-intel` explain/suggest), and the **runtime plane** (the
+  custom UI — see "The planes"). One core, many surfaces; each surface lives where its *mode* fits.
+- **Measurement — two kinds, don't conflate them:**
+  - *Dev-time* (`fox-bench`): microbenchmark the hot path under `perf` (cycles / cache-misses /
+    branch-mispredicts), fingerprinted per commit → feeds CI regression + annotates the cockpit (measured
+    cycles *next to* the static asm). Static says "gained a branch"; the bench says "and it cost 12ns."
+  - *Runtime* (live telemetry from the running engine): per-core latency / fills / state → the **custom UI
+    plane**, NOT nvim. Same fact schema, different surface.
 
 ## Priority
 
