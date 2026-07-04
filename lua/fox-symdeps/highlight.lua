@@ -78,6 +78,7 @@ local function jump(r)
   vim.cmd("normal! m`") -- jumplist mark so <C-o> returns
   vim.cmd.edit(vim.fn.fnameescape(r.file))
   pcall(vim.api.nvim_win_set_cursor, 0, { r.line, r.col or 0 })
+  pcall(vim.cmd, "normal! zz") -- recenter the landing line
 end
 
 function M.next()

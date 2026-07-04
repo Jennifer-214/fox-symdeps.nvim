@@ -256,6 +256,8 @@ function Hud:_help()
     "",
     "  Sections",
     "    ◆ Layout        size · align · cache-line fit · op-cost",
+    "    ▪ Fields        per-field offset · size · line · straddle flag",
+    "    ▦ Byte map      fields laid on 64 B cache lines (wide view)",
     "    ⊐ Uses          types this depends on (upstream)",
     "    ⊟ Contains      what it contains, recursively",
     "    ◇ Consumers     who uses this  ·  Called by (functions)",
@@ -264,6 +266,7 @@ function Hud:_help()
     "    ▲ Blast radius  byte-layout cascade · embedders + sizeof/fwrite/memcmp",
     "    ◈ hot-path      latency-critical · compiled instruction budget",
     "    ▣ size-budget   struct is cache-residency gated (L1d / L2 tier)",
+    "    ◇ Written/Docs  on-demand — m: who writes a field · n: doc mentions",
     "",
   }
   local buf = vim.api.nvim_create_buf(false, true)
@@ -321,7 +324,9 @@ function Hud:_layout_lines()
   if d.state == "ok" and d.data and d.data.is_template then
     return { "template — put cursor on a concrete Foo<N> use for its size" }
   end
-  if d.state ~= "ok" or not d.data or not d.data.size then return { "layout unavailable" } end
+  if d.state ~= "ok" or not d.data or not d.data.size then
+    return { "layout unavailable — needs compile_commands.json + cursor on a type" }
+  end
   local sz, al = d.data.size, d.data.align or 0
   local out = { ("size %d B · align %d%s%s"):format(sz, al,
     d.data.computed and "  (sizeof probe)" or "", size_delta(self.prev_size, sz)) }
@@ -429,6 +434,15 @@ function Hud:render()
   for _, l in ipairs(self:_layout_lines()) do add("   " .. l, "FoxSymdepsBadge") end
   add("")
 
+  -- guardrail info-lines (◈ hot-path / ▣ size-budget) — the highest-signal "this is budgeted"
+  -- context; lifted to a priority band right under Layout so it's never buried below Consumers.
+  for _, sec in ipairs(self.sections or {}) do
+    if sec.state == "ok" and sec.tree == nil then
+      add(" " .. sec.label, "FoxSymdepsHeader")
+      add("")
+    end
+  end
+
   -- Fields cache-line map (types only)
   local fs = self.fields
   if self.ctx.kind ~= "function" and fs and (fs.state == "loading" or (fs.state == "ok" and #fs.items > 0)) then
@@ -444,7 +458,8 @@ function Hud:render()
         local lo = math.floor(f.offset / 64)
         local hi = math.floor((f.offset + math.max(f.size, 1) - 1) / 64)
         local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ▲ straddles")
-        local ty = f.type and (f.type:sub(1, 18)) or ""
+        local ty = f.type or ""
+        if #ty > 18 then ty = ty:sub(1, 17) .. "…" end
         add(("     @%-4d %-12s %3dB %-18s %s"):format(f.offset, f.name, f.size, ty, lstr), "FoxSymdepsBadge")
         prev_end = f.offset + f.size
       end
@@ -507,7 +522,7 @@ function Hud:render()
   if c.state == "loading" then
     add("   " .. SPIN[self.spin] .. " finding…", "FoxSymdepsBadge")
   elseif c.state == "no_client" then
-    add("   clangd not attached", "FoxSymdepsBadge")
+    add("   — (clangd — see Layout)", "FoxSymdepsBadge")
   elseif not count or count == 0 then
     add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
   elseif self.ctx.kind == "function" then
@@ -544,10 +559,11 @@ function Hud:render()
     end
   end
 
-  -- Provider sections (e.g. the trader's "▲ Byte-layout blast radius")
+  -- Provider TREE sections (e.g. the cascade's "▲ Byte-layout blast radius"). Header-only info-lines
+  -- (tree == nil, e.g. hot-path / size-budget) render in the priority band under Layout — skip here.
   for _, sec in ipairs(self.sections or {}) do
     local has = sec.tree and #sec.tree > 0
-    if sec.state == "loading" or (sec.state == "ok" and (sec.tree == nil or has)) then
+    if sec.tree ~= nil and (sec.state == "loading" or (sec.state == "ok" and has)) then
       add("")
       local scount = 0
       for _, role in ipairs(sec.tree or {}) do scount = scount + (role.count or 0) end
@@ -565,6 +581,7 @@ function Hud:render()
   do
     local parts = {}
     for _, h in ipairs(self.action_hints or {}) do parts[#parts + 1] = h.key .. " " .. h.desc end
+    if self.ctx.kind == "function" then parts[#parts + 1] = "a asm" else parts[#parts + 1] = "w width-lits" end
     parts[#parts + 1] = "r refresh"; parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
     local w = (self.win and vim.api.nvim_win_is_valid(self.win)) and vim.api.nvim_win_get_width(self.win) or 72
     add("")
@@ -631,6 +648,7 @@ function Hud:_activate()
     vim.cmd("normal! m`") -- jumplist mark so <C-o> returns
     vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
     pcall(vim.api.nvim_win_set_cursor, 0, { it.loc.line, 0 })
+    pcall(vim.cmd, "normal! zz") -- recenter the landing line
   end
 end
 
