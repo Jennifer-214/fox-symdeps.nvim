@@ -71,7 +71,7 @@ lens.define{
           files = capped
         end
         hud:set_section("notes",
-          ("📝 Docs mention %s · %d hit(s) in %d file(s)%s")
+          ("◇ Docs mention %s · %d hit(s) in %d file(s)%s")
             :format(ctx.symbol, count, nfiles, nfiles > FILE_CAP and (" — showing " .. FILE_CAP) or ""),
           { { label = "Mentions", role = "notes", count = count, collapsed = false, files = files } }, "ok")
         vim.notify(("fox-symdeps · %s: %d doc mention(s) in %d file(s)"):format(ctx.symbol, count, nfiles),

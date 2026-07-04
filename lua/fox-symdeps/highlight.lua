@@ -25,7 +25,7 @@ local function tag_buffer(bufnr)
     if r.line >= 1 and r.line <= nlines then
       local byte = r.role == "byte"
       pcall(vim.api.nvim_buf_set_extmark, bufnr, NS, r.line - 1, 0, {
-        virt_text = { { (byte and "⚠ " or "◂ ") .. (ROLE_TAG[r.role] or "use"),
+        virt_text = { { (byte and "▲ " or "◂ ") .. (ROLE_TAG[r.role] or "use"),
           byte and "FoxSymdepsAlarm" or "FoxSymdepsLensTag" } },
         virt_text_pos = "eol",
         hl_mode = "combine",

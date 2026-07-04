@@ -8,7 +8,7 @@
 local lens = require("fox-symdeps.lens")
 local writers = require("fox-symdeps.writers")
 
-local LABEL = "⚠ False-sharing risk"
+local LABEL = "▲ False-sharing risk"
 
 local function group_by_file(sites)
   local byfile, order = {}, {}

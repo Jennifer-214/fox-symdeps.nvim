@@ -16,7 +16,7 @@
 -- ── the hud you draw on ─────────────────────────────────────────────────────
 --   hud:set_section(key, label, tree, state)
 --       key    unique string for this section (re-emit with the same key to update it)
---       label  the header line — put a live summary here, e.g. "⚠ 2 risks"
+--       label  the header line — put a live summary here, e.g. "▲ 2 risks"
 --       tree   the body. {} = header only. For a real tree, copy the role_node /
 --              group_by_file pattern in lenses/byte_layout_cascade.lua. Shape:
 --                { { label, role, count, collapsed,

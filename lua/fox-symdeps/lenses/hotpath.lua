@@ -1,6 +1,6 @@
 -- lenses/hotpath.lua — latency-critical context for a FUNCTION. Reads the engine's compiled
 -- instruction-budget sidecar (tools/lib/latency_path_budgets.json) + the manifest tier, and shows
--- "🔥 hot-path · budget N instr" when the function under cursor is on a gated latency path. Auto
+-- "◈ hot-path · budget N instr" when the function under cursor is on a gated latency path. Auto
 -- (a cheap JSON + file read — no clang/clangd). Self-gates on the sidecar existing → silent elsewhere.
 -- So when you (or Claude) touch a hot function, you immediately see it's budgeted, and by how much.
 local lens = require("fox-symdeps.lens")
@@ -45,7 +45,7 @@ lens.define{
     local b = data[ctx.symbol]
     if not b then return end -- not on a gated latency path → silent
     local tier = tier_of(root, ctx.symbol) or "latency"
-    local icon = tier == "hot" and "🔥" or (tier == "slow" and "🐢" or "⏱")
+    local icon = "◈"
     hud:set_section("hotpath",
       ("%s %s-path · budget %d instr · %d data-dependent branch(es)")
         :format(icon, tier, b.instructions or 0, b.data_dependent or 0),

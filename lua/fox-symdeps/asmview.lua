@@ -13,7 +13,7 @@ local function summary(name, r)
   if not r.insns then return ("  [%s]  (unavailable)"):format(name) end
   return ("  [%s]  insns %d · branches %d %s · %s"):format(
     name, r.insns, r.cond_branches or 0,
-    (r.branchless and "(branchless ✓)" or "(has branches ⚠)"),
+    (r.branchless and "(branchless ✓)" or "(has branches ▲)"),
     (r.vector and "vectorized" or "scalar"))
 end
 

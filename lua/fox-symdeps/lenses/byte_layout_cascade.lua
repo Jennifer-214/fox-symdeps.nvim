@@ -95,7 +95,7 @@ local function build_tree(structs, transitive, sites, root)
   return out
 end
 
-local CASCADE_LABEL = "⚠ Byte-layout blast radius"
+local CASCADE_LABEL = "▲ Byte-layout blast radius"
 
 local function enforcement_role(tree)
   for _, role in ipairs(tree) do
@@ -126,7 +126,7 @@ local function run_breakcheck(hud, tree)
     local suffix = nbroken > 0 and (" · " .. nbroken .. " BROKEN") or " · none broken"
     hud:set_section("cascade", CASCADE_LABEL .. suffix, tree, "ok")
     if nbroken > 0 then
-      vim.notify(("fox-symdeps · ⚠ %s: a change broke %d enforcement site(s) across the byte-layout cascade — sizeof/wire compat"):format(hud.ctx.symbol, nbroken), vim.log.levels.ERROR)
+      vim.notify(("fox-symdeps · ▲ %s: a change broke %d enforcement site(s) across the byte-layout cascade — sizeof/wire compat"):format(hud.ctx.symbol, nbroken), vim.log.levels.ERROR)
     end
   end)
 end
@@ -160,11 +160,11 @@ local function run_change_impact(hud, sites, root)
     local r = impact_role(label, buckets[cat], root)
     if r then tree[#tree + 1] = r end
   end
-  add_role("⚠ SILENT · wire/persist shift · no compile error", "silent")
+  add_role("▲ SILENT · wire/persist shift · no compile error", "silent")
   add_role("Loud · static_assert (compiler-caught)", "loud")
   add_role("Other size-dependent sites", "other")
   hud:set_section("impact",
-    ("🔬 Change impact · %d SILENT wire/persist ⚠ · %d loud assert(s)"):format(#buckets.silent, #buckets.loud),
+    ("▲ Change impact · %d SILENT wire/persist · %d loud assert(s)"):format(#buckets.silent, #buckets.loud),
     tree, "ok")
 end
 

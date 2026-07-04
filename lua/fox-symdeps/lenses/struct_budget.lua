@@ -1,5 +1,5 @@
 -- lenses/struct_budget.lua — cache-residency context for a STRUCT. If the struct is in the engine's
--- size-budget manifest (check_struct_size_budget.py), show "🎯 cache-residency gated · tier(s)" — so
+-- size-budget manifest (check_struct_size_budget.py), show "▣ cache-residency gated · tier(s)" — so
 -- when you (or Claude) edit it you know it's under a cache-tier size budget (the struct-side sister of
 -- the hot-path instruction budget). Auto (a file read). Self-gates on the tool + a manifest match.
 local lens = require("fox-symdeps.lens")
@@ -44,7 +44,7 @@ lens.define{
     local tiers = tiers_for(tool, ctx.symbol)
     if #tiers == 0 then return end -- not budget-gated → silent
     hud:set_section("struct_budget",
-      ("🎯 cache-residency gated · size-budget tier(s): %s"):format(table.concat(tiers, ", ")),
+      ("▣ cache-residency gated · size-budget tier(s): %s"):format(table.concat(tiers, ", ")),
       nil, "ok") -- header-only info line
   end,
 }

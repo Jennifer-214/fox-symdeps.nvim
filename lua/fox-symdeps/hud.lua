@@ -75,7 +75,7 @@ function Hud:set_layout(data, state)
     local crossed = math.floor((self.prev_size - 1) / 64) ~= math.floor((data.size - 1) / 64)
     vim.notify(("fox-symdeps · %s: sizeof %d→%d (%s%d)%s"):format(
       self.ctx.symbol, self.prev_size, data.size, d > 0 and "+" or "", d,
-      crossed and "  ⚠ crossed a cache line" or ""), vim.log.levels.WARN)
+      crossed and "  ▲ crossed a cache line" or ""), vim.log.levels.WARN)
   end
   self.external_reload = nil
   self:render() -- panel winbar is the tab bar, owned by panel.lua (set_tabbar)
@@ -261,9 +261,9 @@ function Hud:_help()
     "    ◇ Consumers     who uses this  ·  Called by (functions)",
     "    → Calls         what a function calls (outbound)",
     "    ↪ Call trace    transitive callers",
-    "    ⚠ Blast radius  byte-layout cascade · embedders + sizeof/fwrite/memcmp",
-    "    🔥 hot-path      latency-critical · compiled instruction budget",
-    "    🎯 size-budget   struct is cache-residency gated (L1d / L2 tier)",
+    "    ▲ Blast radius  byte-layout cascade · embedders + sizeof/fwrite/memcmp",
+    "    ◈ hot-path      latency-critical · compiled instruction budget",
+    "    ▣ size-budget   struct is cache-residency gated (L1d / L2 tier)",
     "",
   }
   local buf = vim.api.nvim_create_buf(false, true)
@@ -409,7 +409,7 @@ function Hud:render()
         for _, e in ipairs(file.entries) do
           local tail = e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)
           if e.broken then
-            add_leaf("     ⚠   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
+            add_leaf("     ▲   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
           else
             add_leaf("         " .. tail, { file = file.file, line = e.line })
           end
@@ -443,7 +443,7 @@ function Hud:render()
         end
         local lo = math.floor(f.offset / 64)
         local hi = math.floor((f.offset + math.max(f.size, 1) - 1) / 64)
-        local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ⚠ straddles")
+        local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ▲ straddles")
         local ty = f.type and (f.type:sub(1, 18)) or ""
         add(("     @%-4d %-12s %3dB %-18s %s"):format(f.offset, f.name, f.size, ty, lstr), "FoxSymdepsBadge")
         prev_end = f.offset + f.size
@@ -458,7 +458,7 @@ function Hud:render()
     and self.layout.state == "ok" and self.layout.data and self.layout.data.size
     and vim.api.nvim_win_is_valid(self.win) and vim.api.nvim_win_get_width(self.win) >= 69 then
     local bm = require("fox-symdeps.bytemap").render(fs.items, self.layout.data.size)
-    add(" ▦ Byte map" .. (bm.straddle and "  ⚠ straddles a cache line" or ""),
+    add(" ▦ Byte map" .. (bm.straddle and "  ▲ straddles a cache line" or ""),
       bm.straddle and "FoxSymdepsAlarm" or "FoxSymdepsHeader")
     for _, l in ipairs(bm.lines) do add("   " .. l, "FoxSymdepsBadge") end
     add("")
@@ -544,7 +544,7 @@ function Hud:render()
     end
   end
 
-  -- Provider sections (e.g. the trader's "⚠ Byte-layout blast radius")
+  -- Provider sections (e.g. the trader's "▲ Byte-layout blast radius")
   for _, sec in ipairs(self.sections or {}) do
     local has = sec.tree and #sec.tree > 0
     if sec.state == "loading" or (sec.state == "ok" and (sec.tree == nil or has)) then

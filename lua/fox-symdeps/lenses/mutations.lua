@@ -5,7 +5,7 @@
 local lens = require("fox-symdeps.lens")
 local writers = require("fox-symdeps.writers")
 
-local LABEL = "✎ Written by"
+local LABEL = "◇ Written by"
 
 local function group_by_file(sites)
   local byfile, order = {}, {}
