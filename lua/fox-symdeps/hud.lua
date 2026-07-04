@@ -172,7 +172,7 @@ function Hud:_window()
       row = 1,
       col = 2,
       width = 72,
-      height = 22,
+      height = 28,
       style = "minimal",
       border = "rounded",
       title = { { " " .. self.ctx.symbol .. " ", "FoxSymdepsTitle" } },
@@ -238,6 +238,8 @@ end
 -- `?` help: a readable float of every key + a glossary of what each section means (tooltips).
 function Hud:_help()
   local lines = {
+    "",
+    "  Open    <leader>dd float · <leader>dD panel · <leader>dS browse structs · <leader>du use-lens",
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
     "  Filter  /   filter the Consumers tree",
