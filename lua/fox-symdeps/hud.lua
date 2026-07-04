@@ -113,9 +113,15 @@ end
 
 -- Register an on-demand action key (e.g. a provider's break-check on 'b'). Buffer-local so it
 -- only lives while the HUD is open; providers call this once their section is ready.
-function Hud:map_action(key, fn)
+function Hud:map_action(key, fn, desc)
   if self.closed or not self.buf or not vim.api.nvim_buf_is_valid(self.buf) then return end
   vim.keymap.set("n", key, function() fn() end, { buffer = self.buf, nowait = true, silent = true })
+  if desc then -- register a footer hint (dedupe by key) so lens keys are discoverable inline
+    self.action_hints = self.action_hints or {}
+    for _, h in ipairs(self.action_hints) do if h.key == key then return end end
+    self.action_hints[#self.action_hints + 1] = { key = key, desc = desc }
+    self:render()
+  end
 end
 
 -- Re-track (panel): point at a new symbol, reset sections to loading, re-render.
@@ -126,6 +132,7 @@ function Hud:reset(ctx)
   self.consumers = { state = "loading", tree = {} }
   self.trace = { state = "skip", items = {} }
   self.sections = {}
+  self.action_hints = {} -- lens hints re-register when providers re-run on re-inspect
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
   self.uses = nil -- upstream deps; cleared on struct switch, refilled by set_uses
   self.sel = 1
@@ -160,6 +167,7 @@ function Hud:_window()
   vim.wo[self.win].winhighlight =
     "Normal:FoxSymdepsNormal,FloatBorder:FoxSymdepsBorder,FloatTitle:FoxSymdepsTitle"
 
+  self.action_hints = {} -- lens-contributed keybind hints for the footer (registered via map_action)
   local function map(lhs, fn)
     vim.keymap.set("n", lhs, fn, { buffer = self.buf, nowait = true, silent = true })
   end
@@ -182,7 +190,7 @@ function Hud:_window()
   map("a", function() self:_asm() end)
   map("/", function() self:_filter() end)
   map("?", function()
-    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · b break-check · w width-lits · a asm-diff · Q quickfix · y yank · q close",
+    vim.notify("fox-symdeps · j/k · C-d/C-u page · l/h fold · <CR> jump · / filter · s false-sharing · b break-check · w width-lits · a asm-diff · Q quickfix · y yank · q close",
       vim.log.levels.INFO)
   end)
   for _, k in ipairs({ "i", "o", "x", "dd", "p" }) do
@@ -439,6 +447,15 @@ function Hud:render()
         render_tree(sec.tree)
       end
     end
+  end
+
+  -- keybind hint footer: contextual lens keys (registered via map_action's desc) + always-on keys
+  do
+    local parts = {}
+    for _, h in ipairs(self.action_hints or {}) do parts[#parts + 1] = h.key .. " " .. h.desc end
+    parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
+    add("")
+    add("   " .. table.concat(parts, " · "), "FoxSymdepsBadge")
   end
 
   self.sel = math.max(1, math.min(math.max(#self.items, 1), self.sel))

@@ -45,7 +45,9 @@ lens.define{
     hud:set_section("template", ("template · %s (%s)"):format(ctx.symbol, ctx.kind), {}, "ok")
   end,
 
-  -- OPTIONAL: HUD keybinds, fired with (ctx, hud).
+  -- OPTIONAL: HUD keybinds, fired with (ctx, hud). Pair with `hints` so the key shows in the
+  -- HUD's keybind-hint footer (that's how a lens key becomes discoverable without pressing `?`).
+  hints = { t = "do-thing" }, -- key -> short label, shown in the footer
   actions = {
     -- t = function(ctx, hud) vim.notify("hello from " .. ctx.symbol) end,
   },

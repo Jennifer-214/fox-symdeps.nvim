@@ -143,7 +143,7 @@ lens.define{
         local tree = build_tree(r.structs, r.transitive, r.sites, root)
         hud:set_section("cascade", CASCADE_LABEL, tree, "ok")
         if hud.map_action then
-          hud:map_action("b", function() run_breakcheck(hud, tree) end)
+          hud:map_action("b", function() run_breakcheck(hud, tree) end, "break-check")
         end
       end
     end

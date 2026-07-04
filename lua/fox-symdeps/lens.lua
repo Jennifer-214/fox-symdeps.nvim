@@ -18,7 +18,7 @@ function M.define(spec)
       return
     end
     for key, fn in pairs(spec.actions or {}) do
-      hud:map_action(key, function() fn(ctx, hud) end)
+      hud:map_action(key, function() fn(ctx, hud) end, spec.hints and spec.hints[key])
     end
   end)
 end

@@ -46,6 +46,7 @@ lens.define{
   name = "false_sharing",
   applies = function(ctx) return ctx ~= nil and ctx.kind ~= "function" end,
   render = function(_, hud) end, -- nothing on open; analysis is on-demand (below)
+  hints = { s = "false-sharing" }, -- shows in the HUD footer so `s` is discoverable
   actions = {
     s = function(ctx, hud)
       vim.notify("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
