@@ -163,6 +163,10 @@ function M.setup(opts)
   vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
   vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
   vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })
+  -- panel tab flip from ANYWHERE (the panel's own H/L are buffer-local + collide with bufferline;
+  -- these are global so you can flip tracked symbols without leaving your code window)
+  vim.keymap.set("n", "<leader>d[", function() require("fox-symdeps.panel").switch(-1) end, { desc = "fox-symdeps: panel prev tab" })
+  vim.keymap.set("n", "<leader>d]", function() require("fox-symdeps.panel").switch(1) end, { desc = "fox-symdeps: panel next tab" })
   local ok, wk = pcall(require, "which-key")
   if ok and wk.add then
     pcall(wk.add, { { "<leader>d", group = "symdeps" } })

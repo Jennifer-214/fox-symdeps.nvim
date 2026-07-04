@@ -250,7 +250,7 @@ function Hud:_help()
     "    r  refresh (re-run cascade + break-check)",
     "    q / <Esc>  close",
     "",
-    "  Panel (<leader>dD)   p  follow / pin · H / L  flip tabs · x  drop tab",
+    "  Panel (<leader>dD)   p follow/pin · x drop tab · flip tabs: H/L in-panel · <leader>d[ / d] anywhere",
     "",
     "  Sections",
     "    ◆ Layout        size · align · cache-line fit · op-cost",
