@@ -110,15 +110,16 @@ function Hud:set_uses(list)
 end
 
 -- Upsert a provider-contributed section (by key, so a provider can update its own section).
+-- tree: a role-tree to render · {} = show only when non-empty (calm) · nil = header-only info line.
 function Hud:set_section(key, label, tree, state)
   for _, s in ipairs(self.sections) do
     if s.key == key then
-      s.label, s.tree, s.state = label, tree or {}, state
+      s.label, s.tree, s.state = label, tree, state
       self:render()
       return
     end
   end
-  self.sections[#self.sections + 1] = { key = key, label = label, tree = tree or {}, state = state }
+  self.sections[#self.sections + 1] = { key = key, label = label, tree = tree, state = state }
   self:render()
 end
 
@@ -470,14 +471,15 @@ function Hud:render()
 
   -- Provider sections (e.g. the trader's "⚠ Byte-layout blast radius")
   for _, sec in ipairs(self.sections or {}) do
-    if sec.state == "loading" or (sec.state == "ok" and #sec.tree > 0) then
+    local has = sec.tree and #sec.tree > 0
+    if sec.state == "loading" or (sec.state == "ok" and (sec.tree == nil or has)) then
       add("")
       local scount = 0
-      for _, role in ipairs(sec.tree) do scount = scount + (role.count or 0) end
-      add(" " .. sec.label .. (sec.state == "ok" and (" (" .. scount .. ")") or ""), "FoxSymdepsHeader")
+      for _, role in ipairs(sec.tree or {}) do scount = scount + (role.count or 0) end
+      add(" " .. sec.label .. ((sec.state == "ok" and has) and (" (" .. scount .. ")") or ""), "FoxSymdepsHeader")
       if sec.state == "loading" then
         add("   " .. SPIN[self.spin] .. " analyzing…", "FoxSymdepsBadge")
-      else
+      elseif has then
         render_tree(sec.tree)
       end
     end

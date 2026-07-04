@@ -125,6 +125,9 @@ local function run_breakcheck(hud, tree)
     end
     local suffix = nbroken > 0 and (" · " .. nbroken .. " BROKEN") or " · none broken"
     hud:set_section("cascade", CASCADE_LABEL .. suffix, tree, "ok")
+    if nbroken > 0 then
+      vim.notify(("fox-symdeps · ⚠ %s: a change broke %d enforcement site(s) across the byte-layout cascade — sizeof/wire compat"):format(hud.ctx.symbol, nbroken), vim.log.levels.ERROR)
+    end
   end)
 end
 
