@@ -459,7 +459,7 @@ function Hud:render()
     and vim.api.nvim_win_is_valid(self.win) and vim.api.nvim_win_get_width(self.win) >= 69 then
     local bm = require("fox-symdeps.bytemap").render(fs.items, self.layout.data.size)
     add(" ▦ Byte map" .. (bm.straddle and "  ▲ straddles a cache line" or ""),
-      bm.straddle and "FoxSymdepsAlarm" or "FoxSymdepsHeader")
+      bm.straddle and "FoxSymdepsWarn" or "FoxSymdepsHeader")
     for _, l in ipairs(bm.lines) do add("   " .. l, "FoxSymdepsBadge") end
     add("")
   end

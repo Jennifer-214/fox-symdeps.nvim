@@ -123,14 +123,16 @@ end
 local function set_highlights(p)
   local function hl(name, spec) vim.api.nvim_set_hl(0, name, spec) end
   hl("FoxSymdepsNormal", { bg = "none" }) -- transparent → inherits the terminal's opacity
-  hl("FoxSymdepsBorder", { fg = p.border or p.header or "#b8967a", bg = "none" })
-  hl("FoxSymdepsTitle", { fg = p.title or p.header or "#e0a0a0", bold = true, bg = "none" })
-  hl("FoxSymdepsHeader", { fg = p.header or "#e0a0a0", bold = true })
-  hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#a0907f" })
-  hl("FoxSymdepsTreeCount", { fg = p.header or "#e0a0a0", bold = true }) -- neo-tree consumer-count badge
-  hl("FoxSymdepsSelection", { bg = p.selection or "#4a3340" })           -- picker selected-row bar (warm)
-  hl("FoxSymdepsAlarm", { fg = p.alarm or "#e06c75", bold = true })       -- RED — reserved for breaks/straddle/danger only
-  hl("FoxSymdepsLensTag", { fg = p.badge or p.muted or "#a0907f", italic = true }) -- calm in-code use tag (W13)
+  hl("FoxSymdepsBorder", { fg = p.border or p.header or "#d4985a", bg = "none" })            -- peach
+  hl("FoxSymdepsTitle", { fg = p.title or p.header or "#c89eb5", bold = true, bg = "none" }) -- blush
+  hl("FoxSymdepsHeader", { fg = p.header or "#d4985a", bold = true })                        -- peach
+  hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#b0a498" })                            -- warm
+  hl("FoxSymdepsTreeCount", { fg = p.header or "#d4985a", bold = true })                     -- neo-tree count badge
+  hl("FoxSymdepsSelection", { bg = p.selection or "#4d2f34" })                               -- warm rose-brown row bar
+  hl("FoxSymdepsWarn", { fg = p.warn or "#d4b483", bold = true })                            -- wheat — caution (▲ straddle)
+  hl("FoxSymdepsAlarm", { fg = p.alarm or "#b0603a", bold = true })                          -- terracotta — breaks/danger (not raw red)
+  hl("FoxSymdepsOk", { fg = p.ok or "#7aab88" })                                             -- green — clean/ok
+  hl("FoxSymdepsLensTag", { fg = p.badge or p.muted or "#b0a498", italic = true })           -- calm in-code use tag
 end
 
 function M.setup(opts)
