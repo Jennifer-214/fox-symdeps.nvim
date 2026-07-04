@@ -95,7 +95,7 @@ lens.define{
           local r = byrole[fe.cat]
           if not r then
             r = { label = fe.cat, role = "notes", count = 0, files = {}, rank = fe.rank,
-                  collapsed = (fe.cat == "backups") }
+                  collapsed = true }
             byrole[fe.cat] = r; roles[#roles + 1] = r
           end
           r.files[#r.files + 1] = fe; r.count = r.count + fe.count
