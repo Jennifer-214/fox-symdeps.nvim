@@ -8,19 +8,31 @@ Ground truth from your toolchain (clangd + treesitter), not a guess. C++-only.
 
 ## What it shows
 
-For the symbol under the cursor:
+For the symbol under the cursor (`<leader>dd` float or `<leader>dD` panel):
 
-- **Layout** (types) — size, alignment, and how it sits across 64 B cache lines: free
-  space, how many fit a line, and which vector register it fits (XMM / YMM / ZMM).
-- **Fields** (types) — a per-field cache-line map: each field's offset, size, and line,
-  flagging fields that **straddle** a line boundary and the padding gaps between them.
-- **Consumers** (types) — references **classified by role**: used as input (param),
-  returned, embedded (field), instantiated (local), or byte sites (sizeof) — because the
-  role is what tells you the *kind* of impact a change has.
-- **Called by** (functions) — the real callers, from clangd's call hierarchy, not every
-  textual mention.
+**Types / structs**
+- **Layout** — size · alignment · how it sits across 64 B cache lines · which vector register it fits.
+- **Fields** — per-field cache-line map: offset, size, line, straddle flags, padding gaps.
+- **Uses** — the distinct types this struct depends on (upstream), each jumpable to its definition.
+- **Contains** — recursive composition, all the way down.
+- **Consumers** — references classified by role: input / returned / embedded / instantiated / byte (sizeof).
+- **🎯 size-budget** — if the struct is cache-residency-gated (from a size-budget manifest), its tier.
 
-It's a picker: `j`/`k` snap between entries, the active one highlighted, `<CR>` jumps.
+**Functions**
+- **Called by** + **→ Calls** — both call directions (real call hierarchy, not textual mentions).
+- **Call trace** — transitive callers.
+- **🔥 hot-path** — if it's latency-critical, its compiled instruction budget.
+
+**On-demand** (press the key — discoverable in the footer and in `?`):
+- `s` false-sharing · `m` who-writes-this-field · `n` doc mentions (design specs / invariants) ·
+  `c` change-impact (what a size change breaks downstream, **loud vs silent**) · `b` break-check ·
+  `a` asm flag-diff · `w` width-literal scan · `r` refresh.
+
+**Project-specific** (self-gates on the tool being present): a **byte-layout blast radius** cascade
+— embedders + `sizeof`/`fwrite`/`memcmp` enforcement sites via `gen_code_map`, with an auto
+break-check that lights up broken `static_assert`s across files when a struct changes.
+
+It's a picker: `j`/`k` snap between entries, `l`/`h` expand/fold, `<CR>` jumps.
 
 ## Requirements
 
@@ -61,8 +73,16 @@ or drop `dir` for the published remote):
 
 ## Usage
 
-- `<leader>dd` — open the HUD for the symbol under the cursor.
-- In the HUD: `j`/`k` select · `<CR>` jump to the selected entry (drops a jumplist mark, so `<C-o>` returns) · `q`/`<Esc>` close.
+- `<leader>dd` — float HUD for the symbol under the cursor
+- `<leader>dD` — persistent panel (follows structs/functions; `<leader>d[` / `d]` flip tabs; `p` pin)
+- `<leader>dS` — browse structs · `<leader>du` — in-code use-lens (`]u`/`[u` to hop)
+- In the HUD: `j`/`k` select · `l`/`h` expand/fold · `<CR>` jump (drops a jumplist mark, `<C-o>` back) ·
+  `/` filter · `?` full key + section glossary · `q`/`<Esc>` close
+
+### Config
+
+`opts.palette` (theme tokens — see Install above) and `opts.doc_dirs` (extra dirs the `n` notes lens
+greps for symbol mentions — e.g. a workspace repo of design specs / invariants) — both optional.
 
 ## Health
 
