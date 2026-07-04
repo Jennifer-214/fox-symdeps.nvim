@@ -87,6 +87,39 @@ function M.risk(fields, writers, opts)
   return risks
 end
 
+-- L0 write-detection: is the identifier reference at (row0, col0) a WRITE? Conservative — only the
+-- unambiguous mutations (assignment LHS incl. compound `+=` etc.; `++`/`--`). Ambiguous cases
+-- (address-of, non-const ref args, initialization) are treated as READS, because a spurious
+-- false-sharing risk erodes trust more than a missed one (calm by construction). Needs the cpp parser.
+function M.is_write_at(content, row0, col0)
+  local okp, parser = pcall(vim.treesitter.get_string_parser, content, "cpp")
+  if not okp or not parser then return false end
+  local trees = parser:parse()
+  local root = trees and trees[1] and trees[1]:root()
+  if not root then return false end
+  local node = root:named_descendant_for_range(row0, col0, row0, col0)
+  if not node then return false end
+  local sr, sc = node:range() -- our node's start, for the "within the LHS" test
+  local n = node
+  while n do
+    local t = n:type()
+    if t == "update_expression" then return true end -- x++  --x
+    if t == "assignment_expression" then
+      local left = n:field("left")[1]
+      if not left then return false end
+      local lsr, lsc, ler, lec = left:range()
+      local after_start = (sr > lsr) or (sr == lsr and sc >= lsc)
+      local before_end = (sr < ler) or (sr == ler and sc <= lec)
+      return after_start and before_end -- true iff our node sits inside the LHS
+    end
+    if t == "compound_statement" or t == "function_definition" or t == "translation_unit" then
+      return false -- reached a statement/scope boundary without an assignment → a read
+    end
+    n = n:parent()
+  end
+  return false
+end
+
 M._lines_of = lines_of
 M._to_set = to_set
 M._disjoint = disjoint
