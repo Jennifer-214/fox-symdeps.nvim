@@ -199,6 +199,42 @@ function M.for_struct(ctx, cb)
   end)
 end
 
+-- Write-owner for the SINGLE symbol under ctx (a field / variable): who WRITES it. cb(result, state):
+--   result = { writers = set, sites = { {file,line,scope} }, reads = N, total = N }. Reuses is_write_at.
+function M.for_symbol(ctx, cb)
+  local c = client(ctx.bufnr)
+  if not c then return cb(nil, "no_client") end
+  local classify = require("fox-symdeps.classify")
+  local params = {
+    textDocument = { uri = vim.uri_from_bufnr(ctx.bufnr) },
+    position = { line = ctx.line - 1, character = ctx.col },
+    context = { includeDeclaration = false },
+  }
+  c:request("textDocument/references", params, function(err, refs)
+    if err or not refs then return cb(nil, "empty") end
+    local cache, writers, sites, reads = {}, {}, {}, 0
+    for _, r in ipairs(refs) do
+      local file = vim.uri_to_fname(r.uri)
+      if cache[file] == nil then
+        local okr, lines = pcall(vim.fn.readfile, file)
+        cache[file] = okr and table.concat(lines, "\n") or false
+      end
+      local content = cache[file]
+      if content then
+        local row0, col0 = r.range.start.line, r.range.start.character
+        if M.is_write_at(content, row0, col0) then
+          local scope = classify._scope_at(content, row0, col0) or "?"
+          writers[scope] = true
+          sites[#sites + 1] = { file = file, line = row0 + 1, scope = scope }
+        else
+          reads = reads + 1
+        end
+      end
+    end
+    cb({ writers = writers, sites = sites, reads = reads, total = #refs }, "ok")
+  end, ctx.bufnr)
+end
+
 M._lines_of = lines_of
 M._to_set = to_set
 M._disjoint = disjoint
