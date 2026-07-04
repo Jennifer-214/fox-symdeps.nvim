@@ -204,6 +204,11 @@ function Hud:_window()
   map("<Esc>", function() self:close() end)
   map("Q", function() self:_to_quickfix() end)
   map("y", function() self:_yank() end)
+  map("r", function() -- re-run the full analysis (cascade + break-check) for the current symbol
+    self.external_breakcheck = true
+    require("fox-symdeps").inspect(self.ctx, self)
+    vim.notify("fox-symdeps · refreshed", vim.log.levels.INFO)
+  end)
   map("w", function() self:_width_lits() end)
   map("a", function() self:_asm() end)
   map("/", function() self:_filter() end)
@@ -242,6 +247,7 @@ function Hud:_help()
     "    b  break-check · what broke     n  doc mentions (notes)",
     "    a  asm flag-diff (functions)    w  width-literal scan",
     "    Q  rows → quickfix              y  yank readout",
+    "    r  refresh (re-run cascade + break-check)",
     "    q / <Esc>  close",
     "",
     "  Panel (<leader>dD)   p  follow / pin · H / L  flip tabs · x  drop tab",
@@ -535,7 +541,7 @@ function Hud:render()
   do
     local parts = {}
     for _, h in ipairs(self.action_hints or {}) do parts[#parts + 1] = h.key .. " " .. h.desc end
-    parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
+    parts[#parts + 1] = "r refresh"; parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
     add("")
     add("   " .. table.concat(parts, " · "), "FoxSymdepsBadge")
   end
