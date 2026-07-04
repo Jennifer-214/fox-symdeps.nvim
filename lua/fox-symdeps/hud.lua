@@ -594,7 +594,10 @@ function Hud:render()
   -- selection: a warm bar on the active row, cursor parked there for scroll (cursor hidden)
   if #self.items > 0 then
     local line = self.items[self.sel].bufline
-    vim.api.nvim_buf_set_extmark(self.buf, NS, line - 1, 0, { line_hl_group = "FoxSymdepsSelection" })
+    vim.api.nvim_buf_set_extmark(self.buf, NS, line - 1, 0, {
+      line_hl_group = "FoxSymdepsSelection",
+      virt_text = { { "❯", "FoxSymdepsHeader" } }, virt_text_pos = "overlay", virt_text_win_col = 0,
+    }) -- fzf-style pointer on the active row (mirrors --pointer)
     if vim.api.nvim_win_is_valid(self.win) then
       pcall(vim.api.nvim_win_set_cursor, self.win, { line, 0 })
     end
