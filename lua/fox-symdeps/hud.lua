@@ -466,9 +466,20 @@ function Hud:render()
   end
 
   -- Upstream "Uses" (types only): distinct types this struct depends on — the mirror of Consumers.
+  -- Each is jumpable to its definition (add_leaf); an unresolved one (e.g. a template param T) stays plain.
   if self.ctx.kind ~= "function" and self.uses ~= nil then
     add(" ⊐ Uses" .. (#self.uses > 0 and (" (" .. #self.uses .. ")") or ""), "FoxSymdepsHeader")
-    add("   " .. (#self.uses > 0 and table.concat(self.uses, " · ") or "— (no struct deps)"), "FoxSymdepsBadge")
+    if #self.uses == 0 then
+      add("   — (no struct deps)", "FoxSymdepsBadge")
+    else
+      for _, u in ipairs(self.uses) do
+        if u.file then
+          add_leaf("   " .. u.name, { file = u.file, line = u.line or 1 })
+        else
+          add("   " .. u.name, "FoxSymdepsBadge")
+        end
+      end
+    end
     add("")
   end
 

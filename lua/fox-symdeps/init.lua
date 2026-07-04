@@ -8,6 +8,7 @@ local defaults = {
   key = "<leader>dd",
   palette = {},
   pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
+  doc_dirs = {},  -- extra dirs the `n` notes lens greps for symbol mentions (design specs / a workspace repo)
 }
 
 -- callees {name,file,line} → a one-role "Calls" tree for the HUD (file-grouped, jumpable).

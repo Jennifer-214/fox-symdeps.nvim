@@ -25,8 +25,10 @@ struct Big {
 ]]
 
 local u = compose.uses("Big", nil, src)
-ok(#u == 2, "2 distinct struct deps (got " .. #u .. ": " .. table.concat(u, ",") .. ")")
-ok(u[1] == "FPN_Binary" and u[2] == "OrderBook", "sorted + deduped: FPN_Binary, OrderBook (primitives/pointers excluded)")
+local names = {}
+for _, e in ipairs(u) do names[#names + 1] = e.name end
+ok(#u == 2, "2 distinct struct deps (got " .. #u .. ": " .. table.concat(names, ",") .. ")")
+ok(u[1].name == "FPN_Binary" and u[2].name == "OrderBook", "sorted + deduped: FPN_Binary, OrderBook (primitives/pointers excluded)")
 
 local leaf = compose.uses("Inner", nil, src)
 ok(#leaf == 0, "leaf struct (only int) → 0 deps")

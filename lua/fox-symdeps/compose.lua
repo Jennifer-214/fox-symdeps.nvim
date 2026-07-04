@@ -98,18 +98,36 @@ function M.tree(name, root, depth, seen)
   return out
 end
 
--- UPSTREAM "Uses": the distinct user-defined types this struct depends on (its struct/class-typed
--- members, template args stripped, deduped + sorted). The mirror of Consumers. Pure-ish (rg +
--- treesitter; needs the cpp parser). content_override lets tests pass source directly.
+-- def location {file, line} of a type via rg ("struct|class NAME" up to a delimiter). nil if unfound.
+local function def_loc(name, root)
+  if not root then return nil end
+  local ok, out = pcall(vim.fn.systemlist, {
+    "rg", "--no-heading", "--line-number", "--color", "never",
+    "-g", "*.hpp", "-g", "*.h", "-g", "*.hh", "-g", "*.cpp", "-g", "*.cc",
+    "-e", "(struct|class)[[:space:]]+" .. name .. "[[:space:]{:;<]", root,
+  })
+  if ok and type(out) == "table" and out[1] then
+    local file, line = out[1]:match("^([^:]+):(%d+):")
+    if file then return file, tonumber(line) end
+  end
+end
+
+-- UPSTREAM "Uses": the distinct user-defined types this struct depends on (struct/class-typed members,
+-- template args stripped, deduped + sorted), each resolved to its definition so the HUD can JUMP.
+-- The mirror of Consumers. Returns { {name, file?, line?}, ... }. content_override lets tests pass source.
 function M.uses(name, root, content_override)
   local seen, out = {}, {}
   for _, m in ipairs(M.members(name, root, content_override)) do
     if is_struct_type(m.type) then
       local b = base_of(m.type)
-      if not seen[b] then seen[b] = true; out[#out + 1] = b end
+      if not seen[b] then
+        seen[b] = true
+        local file, line = def_loc(b, root)
+        out[#out + 1] = { name = b, file = file, line = line }
+      end
     end
   end
-  table.sort(out)
+  table.sort(out, function(a, b) return a.name < b.name end)
   return out
 end
 
