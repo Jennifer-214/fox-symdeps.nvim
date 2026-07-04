@@ -560,13 +560,25 @@ function Hud:render()
     end
   end
 
-  -- keybind hint footer: contextual lens keys (registered via map_action's desc) + always-on keys
+  -- keybind hint footer: contextual lens keys + always-on keys, WRAPPED to the window width so it
+  -- never runs off the edge (it overflowed the float and got badly cut in the narrower panel).
   do
     local parts = {}
     for _, h in ipairs(self.action_hints or {}) do parts[#parts + 1] = h.key .. " " .. h.desc end
     parts[#parts + 1] = "r refresh"; parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
+    local w = (self.win and vim.api.nvim_win_is_valid(self.win)) and vim.api.nvim_win_get_width(self.win) or 72
     add("")
-    add("   " .. table.concat(parts, " · "), "FoxSymdepsBadge")
+    local line = ""
+    for _, p in ipairs(parts) do
+      local cand = (line == "") and p or (line .. " · " .. p)
+      if line ~= "" and vim.fn.strdisplaywidth("   " .. cand) > (w - 2) then
+        add("   " .. line, "FoxSymdepsBadge")
+        line = p
+      else
+        line = cand
+      end
+    end
+    if line ~= "" then add("   " .. line, "FoxSymdepsBadge") end
   end
 
   self.sel = math.max(1, math.min(math.max(#self.items, 1), self.sel))
