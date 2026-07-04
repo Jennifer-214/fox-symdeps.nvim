@@ -23,7 +23,9 @@ Several surfaces, deliberately **NOT all in nvim.** Split by *mode*. This mirror
 decouple — the `.E.2` **headless-engine ↔ viewer split** (tick-trader workspace,
 `plans/v5.15-live-readiness/`; specs `headless-engine-viewer-split-pattern`,
 `native-tui-via-mmap-readonly-pattern`, `dual-format-metrics-publication-pattern`,
-`built-in-observability-pattern`). **Reuse that mechanism; don't reinvent it.**
+`built-in-observability-pattern`). The engine side below is the **current** design and **will change**
+before this ships — so the plugin couples to *none* of its specifics; it talks only to the **integration
+contract** (next section). Treat the mmap / `fox-tui` / Prometheus details as context, not a dependency.
 
 - **Data plane — the headless engine.** Runs 24/7, single-writer. PUBLISHES its state to a read-only
   **mmap shared-memory region** (lock-free seqlock reads), plus **dual-format metrics** (mmap for real-time +
@@ -33,10 +35,11 @@ decouple — the `.E.2` **headless-engine ↔ viewer split** (tick-trader worksp
   (scrapes Prometheus). Every viewer is a **read-only consumer** of the engine's published state; the
   single-writer design keeps them decoupled *by construction* (Class-18-clean).
 - **Editor plane — nvim + fox-symdeps (this repo).** DEV-TIME static analysis (layout, asm, cache lines,
-  break-check, roam). **Cross-plane hook:** nvim becomes *another read-only mmap consumer* of the same
-  published state — a **peer of `fox-tui`**, reusing `native-tui-via-mmap-readonly-pattern` — so the cockpit
-  fuses *static* (what a symbol IS) with *live* (what it's DOING). It attaches to a read-only shared-memory
-  region; it never writes, never couples to the running engine.
+  break-check, roam). **Cross-plane hook:** nvim depends only on the **runtime-provider contract**
+  (`live_facts(symbol)` — see "Integration contract"), *never* on the engine's transport. A concrete adapter
+  (an mmap-reader today, a socket client or whatever the engine settles on later) sits behind the contract —
+  so the cockpit fuses *static* (what a symbol IS) with *live* (what it's DOING) without knowing or caring how
+  the engine publishes, and the engine's architecture can change freely.
 - **CLI / CI plane.** Headless fact producers + regression gates (pre-commit / CI).
 - **AI plane — libfox-intel.** Explanation / suggestion over the facts.
 
@@ -48,6 +51,26 @@ a per-core state struct the engine publishes; a hot-path function has a per-node
 (`built-in-observability-pattern`). So "inspect `ExecutionCore` in nvim" reads its live per-core state from
 the mmap region right beside its static layout + asm. (The map is *symbol → published-state field*, not
 automatic — symbols with no published counterpart simply show static only.)
+
+## Integration contract (the stable seam — do NOT couple to the transport)
+
+The engine's telemetry mechanism **will change** before this ships (mmap + `fox-tui` is today's `.E.2`
+design; it could become sockets, a different IPC, or something else entirely). So the plugin depends on a
+**contract**, never on the transport. A minimal runtime provider:
+
+```lua
+-- live facts for a symbol, or nil if none/unavailable. Non-blocking.
+provider.live_facts(symbol) -> { [metric_name] = value, ... } | nil
+```
+
+- The plugin only ever calls this, and fuses whatever comes back with the static analysis (keyed by symbol).
+- A concrete **adapter** fulfills it — an mmap-reader, a socket client, a Prometheus scraper — whatever the
+  engine actually exposes. Swap the engine's transport → rewrite the (small) adapter; the plugin is untouched.
+- Ships with a **null adapter** (returns nil) so the plugin works standalone today and gains the live column
+  the day a real adapter lands.
+
+The transport stays out of scope until the engine settles. The contract is the only thing that has to hold —
+and it's small enough to revise cheaply if even it needs to.
 
 ## Exploratory — roam the codebase, not just cursor-point
 
@@ -103,9 +126,9 @@ The fox-health pattern (one `lib*.a` → many surfaces) applied to the analysis:
     branch-mispredicts), fingerprinted per commit → feeds CI regression + annotates the cockpit (measured
     cycles *next to* the static asm). Static says "gained a branch"; the bench says "and it cost 12ns."
   - *Runtime* (live telemetry from the running engine): per-core latency / fills / state, published to the
-    engine's read-only mmap region → `fox-tui` / Grafana, NOT nvim. The cockpit can *read* these back for the
-    inspected symbol by attaching to that same mmap as a peer of `fox-tui` (keyed by symbol) — but it never
-    hosts the live dashboard itself.
+    engine's read-only surface → `fox-tui` / Grafana, NOT nvim. The cockpit can *read* these back for the
+    inspected symbol through the runtime-provider contract (keyed by symbol; whatever transport backs it) —
+    but it never hosts the live dashboard itself.
 
 ## Priority
 
