@@ -181,7 +181,14 @@ function Hud:_window()
   end
   vim.wo[self.win].winblend = self.palette.winblend or 0
   vim.wo[self.win].cursorline = false
-  vim.wo[self.win].wrap = false
+  -- wrap + breakindent so long content (Layout op-costs, cascade headers, doc
+  -- paths) reflows instead of hard-truncating at the panel edge. Tree hierarchy
+  -- is LEFT-indentation and nav is by-item, so breakindent preserves the layout
+  -- and j/k / the ❯ pointer are unaffected.
+  vim.wo[self.win].wrap = true
+  vim.wo[self.win].linebreak = true
+  vim.wo[self.win].breakindent = true
+  vim.wo[self.win].breakindentopt = "shift:2"
   vim.wo[self.win].winhighlight =
     "Normal:FoxSymdepsNormal,FloatBorder:FoxSymdepsBorder,FloatTitle:FoxSymdepsTitle"
 
@@ -709,7 +716,14 @@ function Hud:_asm()
   end
   local flags = require("fox-symdeps.asmflags")
   local a, b = flags.pair()
-  local bufnr, fn = self.ctx.bufnr, self.ctx.symbol
+  -- Qualify with the enclosing namespace (resolved in context.under_cursor) so
+  -- symbols inside `namespace tt { … }` compile; global-scope symbols get an
+  -- empty container → unqualified name (identical to before). Call sites (cursor
+  -- outside the namespace block) resolve container="" here — a hover-markdown
+  -- fallback for that case is a follow-up.
+  local bufnr = self.ctx.bufnr
+  local container = self.ctx.container or ""
+  local fn = (container ~= "") and (container .. "::" .. self.ctx.symbol) or self.ctx.symbol
   vim.notify(("fox-symdeps · asm-diff %s: %s vs %s…"):format(fn, a.name, b.name), vim.log.levels.INFO)
   local asmdiff = require("fox-symdeps.asmdiff")
   local res, rerun = {}, function() self:_asm() end

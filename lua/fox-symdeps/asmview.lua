@@ -10,7 +10,7 @@ local COND = { je = 1, jne = 1, jz = 1, jnz = 1, jg = 1, jge = 1, jl = 1, jle = 
 
 local function summary(name, r)
   if not r or r.inlined then return ("  [%s]  (inlined / no standalone body)"):format(name) end
-  if not r.insns then return ("  [%s]  (unavailable)"):format(name) end
+  if not r.insns then return ("  [%s]  %s"):format(name, r.error or "(unavailable)") end
   return ("  [%s]  insns %d · branches %d %s · %s"):format(
     name, r.insns, r.cond_branches or 0,
     (r.branchless and "(branchless ✓)" or "(has branches ▲)"),
@@ -29,7 +29,9 @@ function M.show(fn, a, b, ra, rb, rerun)
   local function dump(name, r)
     add("── " .. name .. " ──", "FoxSymdepsHeader")
     if r and r.inlined then add("   (inlined at this opt level)", "FoxSymdepsBadge")
-    elseif not (r and r.insns) then add("   (unavailable — compile failed?)", "FoxSymdepsBadge")
+    elseif not (r and r.insns) then
+      add("   " .. ((r and r.error) or "(unavailable — compile failed?)"),
+        (r and r.error) and "FoxSymdepsAlarm" or "FoxSymdepsBadge")
     else
       for _, l in ipairs(r.lines_shown or {}) do
         local op = l:match("^([%w]+)")
@@ -52,6 +54,7 @@ function M.show(fn, a, b, ra, rb, rerun)
   local win = vim.api.nvim_open_win(buf, true, { split = "below", height = math.min(#lines + 1, 24) })
   vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
   vim.wo[win].winblend = 0
+  vim.wo[win].wrap = true
   vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end, { buffer = buf, nowait = true })
   if rerun then vim.keymap.set("n", "f", function() pcall(vim.api.nvim_win_close, win, true); rerun() end, { buffer = buf, nowait = true }) end
   return buf

@@ -117,16 +117,28 @@ local function run_breakcheck(hud, tree)
   end
   if #files == 0 then return end
   hud:set_section("cascade", CASCADE_LABEL .. " · checking…", tree, "ok")
-  require("fox-symdeps.breakcheck").check(files, files[1], function(failset)
+  require("fox-symdeps.breakcheck").check(files, files[1], function(failset, errors)
     local nbroken = 0
     for _, e in ipairs(entries) do
       e.broken = failset[vim.fn.fnamemodify(e.file, ":p") .. ":" .. e.line] ~= nil
       if e.broken then nbroken = nbroken + 1 end
     end
-    local suffix = nbroken > 0 and (" · " .. nbroken .. " BROKEN") or " · none broken"
+    local nerr = errors and #errors or 0
+    local suffix
+    if nbroken > 0 then
+      suffix = " · " .. nbroken .. " BROKEN"
+    elseif nerr > 0 then
+      suffix = " · ⚠ " .. nerr .. " UNVERIFIED (compile failed)"
+    else
+      suffix = " · none broken"
+    end
     hud:set_section("cascade", CASCADE_LABEL .. suffix, tree, "ok")
     if nbroken > 0 then
       vim.notify(("fox-symdeps · ▲ %s: a change broke %d enforcement site(s) across the byte-layout cascade — sizeof/wire compat"):format(hud.ctx.symbol, nbroken), vim.log.levels.ERROR)
+    elseif nerr > 0 then
+      -- couldn't compile ≠ nothing broke — say so LOUDLY, never imply a clean bill of health
+      vim.notify(("fox-symdeps · ⚠ %s: break-check could NOT compile %d file(s) — this is NOT a clean result: %s")
+        :format(hud.ctx.symbol, nerr, table.concat(errors, " | ")), vim.log.levels.WARN)
     end
   end)
 end

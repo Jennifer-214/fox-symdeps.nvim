@@ -20,38 +20,52 @@ function M.parse_failures(out)
 end
 
 -- check(files, flags_file, cb): compile each unique file (#include it, -fsyntax-only) and report
--- cb(failset) keyed "<abs file>:<line>". flags_file seeds compile_commands lookup + flags.
+-- cb(failset, errors). failset keyed "<abs file>:<line>" = FAILED static_asserts. errors =
+-- { "<file>: <reason>", ... } for files that could NOT be compiled — so a break-check that never
+-- actually ran is reported as UNVERIFIED, never as a false "nothing broke". flags_file seeds
+-- compile_commands lookup + flags.
 function M.check(files, flags_file, cb)
   local flags, dir = sizeprobe._flags_for(flags_file)
-  if not flags then return cb({}) end
+  if not flags then return cb({}, { "no compile_commands.json — break-check could not run" }) end
   local seen, uniq = {}, {}
   for _, f in ipairs(files or {}) do
     local abs = f and vim.fn.fnamemodify(f, ":p")
     if abs and not seen[abs] then seen[abs] = true; uniq[#uniq + 1] = abs end
   end
-  if #uniq == 0 then return cb({}) end
+  if #uniq == 0 then return cb({}, {}) end
 
-  local failset, pending = {}, #uniq
-  local function done_one(out)
-    for k, v in pairs(M.parse_failures(out)) do failset[k] = v end
+  local failset, errors, pending = {}, {}, #uniq
+  local function finish()
     pending = pending - 1
-    if pending == 0 then vim.schedule(function() cb(failset) end) end
+    if pending == 0 then vim.schedule(function() cb(failset, errors) end) end
+  end
+  local function fail_to_run(file, why)
+    errors[#errors + 1] = vim.fn.fnamemodify(file, ":t") .. ": " .. why
+    finish()
   end
 
   for _, f in ipairs(uniq) do
     local tmp = vim.fn.tempname() .. ".cpp"
-    local okw = pcall(vim.fn.writefile, { ('#include "%s"'):format(f) }, tmp)
-    if not okw then
-      done_one("")
+    if not pcall(vim.fn.writefile, { ('#include "%s"'):format(f) }, tmp) then
+      fail_to_run(f, "could not write temp source")
     else
       local argv = { "clang++", "-fsyntax-only", "-ferror-limit=0" }
       vim.list_extend(argv, flags)
       argv[#argv + 1] = tmp
       local ok = pcall(vim.system, argv, { cwd = dir, text = true }, function(res)
         pcall(os.remove, tmp)
-        done_one((res.stderr or "") .. (res.stdout or ""))
+        local out = (res.stderr or "") .. (res.stdout or "")
+        local fails = M.parse_failures(out)
+        for k, v in pairs(fails) do failset[k] = v end
+        -- Non-zero exit with NO static_assert failure means the file failed to
+        -- compile for some OTHER reason → its asserts were never actually
+        -- checked. Record it so a broken build isn't reported as "clean".
+        if (res.code or 0) ~= 0 and next(fails) == nil then
+          errors[#errors + 1] = vim.fn.fnamemodify(f, ":t") .. ": " .. (out:match("error:%s*([^\n]+)") or "compile failed")
+        end
+        finish()
       end)
-      if not ok then pcall(os.remove, tmp); done_one("") end
+      if not ok then pcall(os.remove, tmp); fail_to_run(f, "could not run clang++") end
     end
   end
 end

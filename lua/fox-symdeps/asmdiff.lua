@@ -72,15 +72,15 @@ end
 -- find the fn's block by demangled name, analyze. cb(result | {inlined=true} | nil).
 function M.run(bufnr, fn_name, flagset, cb)
   local file = vim.api.nvim_buf_get_name(bufnr)
-  if file == "" then return cb(nil) end
+  if file == "" then return cb({ error = "buffer has no file on disk (save it first)" }) end
   local base, dir = sizeprobe._flags_for(file)
-  if not base then return cb(nil) end
+  if not base then return cb({ error = "no compile_commands.json found for this file" }) end
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   -- force a standalone emission even at -O2/-O3 (else static/inline hot-path fns optimize away):
   -- taking the address under [[gnu::used]] keeps a non-inlined copy to read.
   lines[#lines + 1] = ("[[gnu::used]] static auto __fox_keep = &%s;"):format(fn_name)
   local tmp = vim.fn.tempname() .. ".cpp"
-  if not pcall(vim.fn.writefile, lines, tmp) then return cb(nil) end
+  if not pcall(vim.fn.writefile, lines, tmp) then return cb({ error = "could not write temp source" }) end
 
   local argv = { "clang++", "-S", "-o", "-", "-I" .. vim.fn.fnamemodify(file, ":h") }
   vim.list_extend(argv, strip_opt(base))
@@ -91,21 +91,34 @@ function M.run(bufnr, fn_name, flagset, cb)
     pcall(os.remove, tmp)
     local asm = res.stdout or ""
     local blocks = M.blocks(asm)
-    if #blocks == 0 then return vim.schedule(function() cb(nil) end) end
-    -- demangle all labels in one c++filt call, match the one containing fn_name
-    local labels = {}
-    for _, b in ipairs(blocks) do labels[#labels + 1] = b.label end
-    local dem = {}
-    local okd, out = pcall(function()
-      return vim.system(vim.list_extend({ "c++filt" }, labels), { text = true }):wait().stdout or ""
-    end)
-    if okd then local i = 0; for line in out:gmatch("[^\n]+") do i = i + 1; dem[i] = line end end
-    local hit
-    for i, b in ipairs(blocks) do
-      local name = dem[i] or b.label
-      if name:find(fn_name, 1, true) then hit = b; break end
+    if #blocks == 0 then
+      -- compile produced no function blocks — surface WHY instead of a silent
+      -- "unavailable". Pull the first real error line out of stderr.
+      local err
+      for line in (res.stderr or ""):gmatch("[^\n]+") do
+        if line:find("error:", 1, true) then err = (line:gsub("^%s+", "")); break end
+      end
+      if not err and (res.code or 0) ~= 0 then err = "compile exited " .. tostring(res.code) end
+      return vim.schedule(function() cb(err and { error = err } or nil) end)
     end
+    -- demangle + match + analyze on the MAIN LOOP: c++filt uses vim.system
+    -- :wait(), which throws E5560 in this fast-event on_exit context. The pcall
+    -- would swallow it, fall back to the mangled label, and a qualified name
+    -- like tt::foo would then never match (the "::" form only appears
+    -- demangled). Deferring makes demangling reliable.
     vim.schedule(function()
+      local labels = {}
+      for _, b in ipairs(blocks) do labels[#labels + 1] = b.label end
+      local dem = {}
+      local okd, out = pcall(function()
+        return vim.system(vim.list_extend({ "c++filt" }, labels), { text = true }):wait().stdout or ""
+      end)
+      if okd then local i = 0; for line in out:gmatch("[^\n]+") do i = i + 1; dem[i] = line end end
+      local hit
+      for i, b in ipairs(blocks) do
+        local name = dem[i] or b.label
+        if name:find(fn_name, 1, true) then hit = b; break end
+      end
       if not hit then return cb({ inlined = true }) end
       local a = M.analyze(hit.lines)
       a.flagset = table.concat(flagset, " ")
@@ -113,7 +126,7 @@ function M.run(bufnr, fn_name, flagset, cb)
       cb(a)
     end)
   end)
-  if not ok then pcall(os.remove, tmp); cb(nil) end
+  if not ok then pcall(os.remove, tmp); cb({ error = "could not run clang++ (is it installed?)" }) end
 end
 
 M._strip_opt = strip_opt -- exposed for tests
