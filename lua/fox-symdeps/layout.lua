@@ -20,15 +20,29 @@ local function parse_field(md)
   }
 end
 
-local function find_fields(symbols, name)
+-- every symbol named `name` (there can be several: a template + its specializations, or overloads).
+local function matches_named(symbols, name, out)
   for _, s in ipairs(symbols or {}) do
-    if s.name == name and s.children then return s.children end
-    if s.children then
-      local f = find_fields(s.children, name)
-      if f then return f end
+    if s.name == name and s.children then out[#out + 1] = s end
+    if s.children then matches_named(s.children, name, out) end
+  end
+  return out
+end
+
+-- the field children for `name`, preferring the definition whose range CONTAINS `line` (the one the
+-- cursor is on — i.e. the concrete specialization you're looking at, whose offsets resolve), else the
+-- first. Fixes `t`/`s`/Fields failing on a template like FixedPoint by grabbing the un-instantiated
+-- primary instead of the FixedPoint<10,8> under the cursor.
+local function find_fields(symbols, name, line)
+  local ms = matches_named(symbols, name, {})
+  if #ms == 0 then return nil end
+  if line then
+    for _, s in ipairs(ms) do
+      local r = s.range or s.selectionRange
+      if r and (line - 1) >= r.start.line and (line - 1) <= r["end"].line then return s.children end
     end
   end
-  return nil
+  return ms[1].children
 end
 
 -- async: cb(fields, state) where fields = { {name, offset, size} } sorted by offset.
@@ -38,7 +52,7 @@ function M.fields(ctx, cb)
   local td = { uri = vim.uri_from_bufnr(ctx.bufnr) }
   c:request("textDocument/documentSymbol", { textDocument = td }, function(err, syms)
     if err or not syms then return cb(nil, "empty") end
-    local fields = find_fields(syms, ctx.symbol)
+    local fields = find_fields(syms, ctx.symbol, ctx.line)
     if not fields or #fields == 0 then return cb(nil, "empty") end
     local out, pending = {}, #fields
     for _, fld in ipairs(fields) do
