@@ -75,7 +75,17 @@ function M.compute(bufnr, type_name, cb)
     local sz = out:match("__FoxSzP<(%d+)>")
     local al = out:match("__FoxAlP<(%d+)>")
     vim.schedule(function()
-      cb(sz and { size = tonumber(sz), align = al and tonumber(al) or nil } or nil)
+      if sz then
+        return cb({ size = tonumber(sz), align = al and tonumber(al) or nil })
+      end
+      -- No value in the diagnostic → the probe TU failed to compile. Surface the first real error
+      -- instead of letting it fall through to a "needs compile_commands.json" message downstream
+      -- (LANDMINES L1: a compile failure must never masquerade as "no data").
+      local err
+      for line in (res.stderr or ""):gmatch("[^\n]+") do
+        if line:find("error:", 1, true) then err = vim.trim(line); break end
+      end
+      cb({ error = err or "sizeof probe produced no value (type incomplete or not instantiable here)" })
     end)
   end)
   if not ok then pcall(os.remove, tmp); cb(nil) end

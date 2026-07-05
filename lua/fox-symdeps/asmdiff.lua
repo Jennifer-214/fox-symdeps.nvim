@@ -34,6 +34,24 @@ function M.blocks(asm_text)
   return out
 end
 
+-- pure: does a demangled block label name the function `fn_name`? EXACT match on the qualified name
+-- with the argument list stripped — NOT a substring test. Substring made `add` match a `padding`
+-- block and `tt::add` match `tt::add_fees`, silently reporting the wrong function's counts (a false
+-- "branchless ✓" is a dangerous all-clear). Template args are normalized off for the fallback because
+-- `<64>` demangles to `<64u>`; the [[gnu::used]] probe forces a single instantiation, so the base
+-- name is unambiguous. `label` may be demangled ("tt::foo(int)") or a mangled fallback (won't match).
+function M.name_matches(label, fn_name)
+  if not label or not fn_name then return false end
+  local lname = vim.trim(label:match("^(.-)%(") or label) -- drop the (arg list)
+  if lname == fn_name then return true end
+  if lname:find("<", 1, true) or fn_name:find("<", 1, true) then
+    local lbase = lname:gsub("%b<>%s*$", "")
+    local fbase = fn_name:gsub("%b<>%s*$", "")
+    return lbase ~= "" and lbase == fbase -- exact base-name match (still not substring)
+  end
+  return false
+end
+
 -- pure: metrics for a function's instruction lines.
 function M.analyze(lines)
   local insns, cond, calls, branch_lines, vector = 0, 0, 0, {}, false
@@ -114,14 +132,11 @@ function M.run(bufnr, fn_name, flagset, cb)
         return vim.system(vim.list_extend({ "c++filt" }, labels), { text = true }):wait().stdout or ""
       end)
       if okd then local i = 0; for line in out:gmatch("[^\n]+") do i = i + 1; dem[i] = line end end
-      -- Template instantiations demangle with normalized args (`<64>` → `<64u>`),
-      -- so also accept the base name (sans <...>). The [[gnu::used]] probe forces
-      -- exactly one instantiation, so a base match can't grab the wrong overload.
-      local base = fn_name:gsub("%b<>%s*$", "")
+      -- Match the demangled qualified name EXACTLY (arg list stripped, template args normalized) —
+      -- never a substring, which grabbed same-prefix siblings and reported the wrong function.
       local hit
       for i, b in ipairs(blocks) do
-        local name = dem[i] or b.label
-        if name:find(fn_name, 1, true) or (base ~= fn_name and name:find(base, 1, true)) then hit = b; break end
+        if M.name_matches(dem[i] or b.label, fn_name) then hit = b; break end
       end
       if not hit then return cb({ inlined = true }) end
       local a = M.analyze(hit.lines)

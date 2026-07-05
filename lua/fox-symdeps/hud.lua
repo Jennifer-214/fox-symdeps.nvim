@@ -369,6 +369,10 @@ function Hud:_layout_lines()
   if d.state == "ok" and d.data and d.data.is_template then
     return { "template — put cursor on a concrete Foo<N> use for its size" }
   end
+  if d.state == "probe_error" then
+    -- the sizeof probe compiled and FAILED — show why, don't blame the compile DB (LANDMINES L1)
+    return { "size probe failed to compile:", "  " .. ((d.data and d.data.probe_error) or "?") }
+  end
   if d.state ~= "ok" or not d.data or not d.data.size then
     return { "layout unavailable — needs compile_commands.json + cursor on a type" }
   end

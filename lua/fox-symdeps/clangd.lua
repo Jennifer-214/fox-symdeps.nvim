@@ -83,8 +83,10 @@ function M.layout(ctx, cb)
     local spec = spec_of(md)
     if spec then
       require("fox-symdeps.sizeprobe").compute(ctx.bufnr, spec, function(sz)
-        if sz then
+        if sz and sz.size then
           cb({ size = sz.size, align = sz.align or (layout and layout.align), computed = true }, "ok")
+        elseif sz and sz.error then
+          cb({ probe_error = sz.error }, "probe_error") -- compile failed → surface it, don't blame the DB
         else
           cb(layout, layout and "ok" or "empty")
         end

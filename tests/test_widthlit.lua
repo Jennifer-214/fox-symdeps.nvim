@@ -25,6 +25,20 @@ ok(not W.is_suspect("// char buf[16]; historical note", 16), "line comment ignor
 ok(not W.is_suspect("   * nodes[16] in a doc block", 16), "block-comment continuation ignored")
 ok(W.is_suspect("char buf[16]; // 16-byte serialized T", 16), "real code with a trailing comment still matches")
 
+-- PRECISION at the common widths (4, 8): the bare stride heuristic must NOT cry wolf, but the
+-- strong contexts (byte-array, alignas, mem*-with-arg) must still fire. This is the trust fix.
+ok(not W.is_suspect("return idx * 8 + off;", 8), "size 8: idx*8 stride is ordinary arithmetic, not a suspect")
+ok(not W.is_suspect("hash = seed + 8;", 8), "size 8: +8 stride not a suspect")
+ok(not W.is_suspect("return a * 4;", 4), "size 4: *4 stride not a suspect")
+ok(not W.is_suspect("total = count * 8;", 8), "size 8: count*8 not a suspect")
+ok(W.is_suspect("char scratch[8];", 8), "size 8: byte-array [8] IS still a suspect (strong context)")
+ok(W.is_suspect("memcpy(dst, src, 8);", 8), "size 8: memcpy(...,8) with the literal as an arg IS a suspect")
+ok(W.is_suspect("struct alignas(8) X {};", 8), "size 8: alignas(8) IS a suspect")
+ok(W.is_suspect("nbytes = width * 72;", 72), "size 72 (> 8): uncommon-width stride still fires")
+-- mem* tightening: the literal must be INSIDE the call, not merely co-occurring on the line
+ok(not W.is_suspect("memcpy(dst, src, n);  offset += 8;", 8), "8 outside the memcpy args is not the mem* suspect")
+ok(W.is_suspect("fwrite(&m, 8, 1, f);", 8), "size 8: fwrite(&m, 8, ...) literal inside the call fires")
+
 -- scan a fixture file
 local tmp = vim.fn.tempname() .. ".hpp"
 vim.fn.writefile({ "char a[16];", "int ok = sizeof(T);", "memset(p, 0, 16);", "int z = 3;" }, tmp)

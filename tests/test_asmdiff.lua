@@ -47,6 +47,19 @@ eq(mm.vector, false, "main not vectorized")
 
 eq(#A.blocks(""), 0, "empty asm → no blocks")
 
+-- name_matches: EXACT qualified-name match, never substring (the wrong-function trust bug)
+local function tt(label, fn, want, m) eq(A.name_matches(label, fn), want, m) end
+tt("tt::add(int, int)", "tt::add", true, "exact demangled match (arg list stripped)")
+tt("tt::parse_double_fast(char const*)", "tt::parse_double_fast", true, "exact match with args")
+tt("padding()", "add", false, "'add' must NOT match a padding() block (substring bug)")
+tt("tt::add_fees(int)", "tt::add", false, "'tt::add' must NOT match tt::add_fees (same-prefix sibling)")
+tt("tt::address(char*)", "tt::add", false, "'tt::add' must NOT match tt::address")
+tt("tt::ExecutionCore_Init<64u>(tt::Config&)", "tt::ExecutionCore_Init<64>", true, "template <64> matches demangled <64u>")
+tt("tt::ExecutionCore_Init<64u>(x)", "tt::ExecutionCore_Init", true, "templated label matches un-templated fn base")
+tt("tt::Other_Init<64u>(x)", "tt::ExecutionCore_Init<64>", false, "different template base does not match")
+tt("_ZN2tt3addEi", "tt::add", false, "a mangled fallback label does not spuriously match")
+tt(nil, "tt::add", false, "nil label → no match")
+
 -- strip_opt: removes opt/arch/LTO flags (so -S emits native asm, not LLVM IR), keeps the rest
 local so = A._strip_opt({ "-std=c++17", "-O2", "-flto", "-flto=thin", "-march=native", "-emit-llvm", "-Iinc", "-DFOO" })
 eq(table.concat(so, " "), "-std=c++17 -Iinc -DFOO", "strips -O/-flto/-march/-emit-llvm, keeps std/I/D")
