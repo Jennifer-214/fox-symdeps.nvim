@@ -51,6 +51,9 @@ function M.open(palette)
         state = "loading", collapsed = false, rows = {} },
       { key = "biggest", glyph = "▦", label = "Biggest structs", hint = "cache-residency · sizeof",
         state = "loading", collapsed = false, rows = {} },
+      { key = "straddlers", glyph = "▲", label = "Cache-line straddlers",
+        hint = "≤64B fields crossing a 64B line · placement / false-sharing risk",
+        state = "loading", collapsed = false, rows = {} },
     },
     items = {},
     sel = 1,
@@ -153,11 +156,36 @@ function Dash:_load(refresh)
     self:_set("widest", #ranked > 0 and "ok" or "empty", rows)
   end)
 
-  -- biggest structs — waits on a compile of the origin TU.
-  require("fox-symdeps.recordlayout").census(self.origin_buf, function(res)
+  -- biggest structs + straddlers — one compile of the origin TU feeds both tiles.
+  local rl = require("fox-symdeps.recordlayout")
+  rl.census(self.origin_buf, function(res)
     if self.closed then return end
-    if res.error then return self:_set("biggest", "error", { { text = res.error, hl = "FoxSymdepsAlarm" } }) end
+    if res.error then
+      local err = { { text = res.error, hl = "FoxSymdepsAlarm" } }
+      self:_set("biggest", "error", err)
+      return self:_set("straddlers", "error", err)
+    end
     local recs = res.records
+
+    -- straddlers first (order-independent), then sort recs by size for the biggest tile
+    local st = rl.straddlers(recs)
+    local srows = {}
+    for _, s in ipairs(st.report) do
+      local parts = {}
+      for _, f in ipairs(s.fields) do parts[#parts + 1] = ("%s @%d %dB"):format(f.name, f.off, f.size) end
+      srows[#srows + 1] = {
+        text = ("%-34s  %s"):format(s.name, table.concat(parts, ", ")),
+        hl = "FoxSymdepsWarn", struct = base_ident(s.name),
+      }
+    end
+    if st.partial > 0 then -- honest coverage: never let "no straddlers" hide un-analyzed structs
+      srows[#srows + 1] = {
+        text = ("· %d struct(s) skipped — a field of unresolvable type (opaque typedef / enum)"):format(st.partial),
+        hl = "FoxSymdepsBadge",
+      }
+    end
+    self:_set("straddlers", (#st.report > 0 or st.partial > 0) and "ok" or "empty", srows)
+
     table.sort(recs, function(a, b) return a.size > b.size end)
     local rows = {}
     for i = 1, math.min(40, #recs) do

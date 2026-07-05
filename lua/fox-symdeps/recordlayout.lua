@@ -6,6 +6,24 @@
 local M = {}
 local sizeprobe = require("fox-symdeps.sizeprobe")
 
+-- primitive byte widths (x86-64 LP64) for the conservative field-size resolver.
+local PRIM = {
+  ["bool"] = 1, ["_Bool"] = 1, ["char"] = 1, ["signed char"] = 1, ["unsigned char"] = 1,
+  ["int8_t"] = 1, ["uint8_t"] = 1,
+  ["short"] = 2, ["unsigned short"] = 2, ["int16_t"] = 2, ["uint16_t"] = 2, ["char16_t"] = 2,
+  ["int"] = 4, ["unsigned"] = 4, ["unsigned int"] = 4, ["int32_t"] = 4, ["uint32_t"] = 4,
+  ["float"] = 4, ["char32_t"] = 4, ["wchar_t"] = 4,
+  ["long"] = 8, ["unsigned long"] = 8, ["long long"] = 8, ["unsigned long long"] = 8,
+  ["int64_t"] = 8, ["uint64_t"] = 8, ["double"] = 8, ["size_t"] = 8, ["ptrdiff_t"] = 8,
+  ["intptr_t"] = 8, ["uintptr_t"] = 8,
+  ["__int128"] = 16, ["unsigned __int128"] = 16, ["long double"] = 16,
+}
+
+-- canonicalize a type/record name for the size map: drop struct/class/union + all whitespace.
+local function canon(t) return (t:gsub("struct ", ""):gsub("class ", ""):gsub("union ", ""):gsub("%s", "")) end
+-- strip leading namespace qualifiers ("tt::detail::Foo<...>" → "Foo<...>"); leaves template args intact.
+local function stripns(c) return (c:gsub("^([%w_]+::)+", "")) end
+
 -- library/compiler noise we never want in a project census: std::, __impl, _Reserved, anon/lambda.
 local function is_noise(name)
   return name:match("^std::") ~= nil
@@ -39,7 +57,7 @@ function M.parse(dump)
   end
   for line in (dump or ""):gmatch("[^\n]+") do
     if line:find("Dumping AST Record Layout", 1, true) then
-      flush(); cur = { offsets = {} }
+      flush(); cur = { offsets = {}, fields = {} }
     elseif cur then
       local named = false
       if not cur.name then
@@ -55,6 +73,16 @@ function M.parse(dump)
       if not named and cur.name then
         local off = line:match("^%s*(%d+) |")
         if off then cur.offsets[#cur.offsets + 1] = tonumber(off) end
+        -- TOP-LEVEL field: `offset | ` + exactly 3 spaces + `TYPE NAME`. Deeper-nested members
+        -- (5+ spaces) and the `[sizeof=…]` summary don't match. name = last token, type = the rest.
+        local o2, decl = line:match("^%s*(%d+) |   (%S.*)$")
+        if o2 then
+          local fname = decl:match("(%S+)%s*$")
+          local ftype = decl:gsub("%s*%S+%s*$", "")
+          if fname and ftype ~= "" then
+            cur.fields[#cur.fields + 1] = { name = fname, type = ftype, off = tonumber(o2) }
+          end
+        end
       end
     end
   end
@@ -65,6 +93,60 @@ function M.parse(dump)
 end
 
 -- census(bufnr, cb): compile the buffer's TU with the record-layout dump on, parse it.
+-- pure: byte size of a field TYPE, or nil if it can't be resolved exactly (opaque typedef, enum,
+-- unknown). `by_name` maps a canonicalized record name → sizeof (built from the census itself, so
+-- nested engine structs resolve). Arrays multiply the element size; pointers are 8. Conservative:
+-- never guesses — an unresolved field makes its struct "partial" and excluded from the straddler tile.
+function M.field_size(typ, by_name)
+  if not typ then return nil end
+  typ = typ:gsub("^%s+", ""):gsub("%s+$", "")
+  local base, dims = typ:match("^(.-)(%[.+%])$")
+  if base then
+    local n = 1
+    for d in dims:gmatch("%[(%d+)%]") do n = n * tonumber(d) end
+    local es = M.field_size(base:gsub("%s+$", ""), by_name)
+    return es and es * n or nil
+  end
+  if typ:find("%*%s*$") then return 8 end -- pointer / reference-to-pointer
+  if PRIM[typ] then return PRIM[typ] end
+  local c = canon(typ)
+  return by_name and (by_name[c] or by_name[stripns(c)]) or nil
+end
+
+-- pure: the cache-line straddlers across a census. A "straddler" here is a field ≤ 64 B (one that
+-- COULD be cache-resident) whose byte span crosses a 64 B boundary because of where it sits — the
+-- placement/false-sharing risk. Fields > 64 B span lines inherently (a big buffer), so they're not
+-- flagged. Only FULLY-resolved structs are reported (every field sized) → no guessing, no false
+-- alarms; partial structs are counted separately so the coverage is honest, never silently dropped.
+-- Returns { report = { { name, size, fields={{name,off,size}} }, ... }, partial = N }.
+function M.straddlers(records)
+  local by = {}
+  for _, r in ipairs(records or {}) do
+    if r.size then by[canon(r.name)] = r.size; by[stripns(canon(r.name))] = r.size end
+  end
+  local report, partial = {}, 0
+  for _, r in ipairs(records or {}) do
+    if r.fields and #r.fields > 0 and not is_noise(r.name) then
+      local unresolved, hits = 0, {}
+      for _, f in ipairs(r.fields) do
+        local s = M.field_size(f.type, by)
+        if not s then
+          unresolved = unresolved + 1
+        elseif s > 0 and s <= 64 and math.floor(f.off / 64) ~= math.floor((f.off + s - 1) / 64) then
+          hits[#hits + 1] = { name = f.name, off = f.off, size = s }
+        end
+      end
+      if unresolved > 0 then
+        partial = partial + 1
+      elseif #hits > 0 then
+        report[#report + 1] = { name = r.name, size = r.size, fields = hits }
+      end
+    end
+  end
+  table.sort(report, function(a, b) return #a.fields > #b.fields end)
+  return { report = report, partial = partial }
+end
+
 -- cb({ records = {...} }) on success, cb({ error = "…" }) with the first compiler error otherwise.
 function M.census(bufnr, cb)
   local file = vim.api.nvim_buf_get_name(bufnr)

@@ -178,11 +178,15 @@ session transcript.
 
 ### Tier 2 — flagship compiled-reality tiles (domain lens; engine-specific)
 
-- [ ] **[converged] Straddler dashboard tile — with deliberate-pad discrimination.** The parked pahole tile,
-  but a *naive* version is WRONG here: the engine has ~44 intentional `_pad[]` fields (cache-line isolation, e.g.
-  `ExecutionCore::_pad_perm[63]`). Classify each gap — a `_pad`-named / `alignas`-adjacent gap is deliberate,
-  an unnamed interior hole is reclaimable. `recordlayout.parse` already keeps per-record `offsets` (currently
-  discarded by the Biggest-structs tile); the census compile already runs. *(Lenses #2, Domain #3.)*
+- [x] **[converged] Cache-line straddler dashboard tile** (`▲` tile, `<leader>dw`). Fields ≤ 64 B (could be
+  cache-resident) that cross a 64 B line because of placement — the false-sharing/packing risk. Exact field
+  sizes from a conservative resolver (`recordlayout.field_size`: primitive table + array math + nested-struct
+  lookup via the census's own size map); only FULLY-resolved structs are reported (no guessing), partial ones
+  counted + disclosed. Fed by the same census compile as Biggest-structs (no second compile). Deliberately does
+  NOT flag > 64 B fields (big buffers span lines inherently) nor claim "reclaimable padding" — the domain lens
+  showed a naive pad-reclaim tile is WRONG (the gap before `ExecutionCore::live_tp` is *required* `__int128`
+  alignment, not waste). Engine e2e: 12 real straddlers (`tt::Order<64>::pre_resolved @160 48B`, …), 175 skipped.
+  *Deferred:* the reclaimable-hole classifier (needs per-field alignof to separate required pad from waste).
 - [ ] **Cache-lines-touched-per-hot-op.** Cross the fields a hot fn touches (`writers` read/write sets) with
   their offsets (`layout`) → "touches {0,8,32} → 1 line ✓ / spans 2 ✗." Automates the exact hand-optimization
   `ExecutionCore.hpp`'s own comments narrate (the `live_sl` 56→80 straddle fix). Reuses two built primitives.
