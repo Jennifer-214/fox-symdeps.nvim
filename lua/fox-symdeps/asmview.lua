@@ -34,12 +34,20 @@ M._ins_cell = ins_cell
 
 local function br_cell(r)
   if status(r) then return "—" end
-  return (r.cond_branches or 0) .. (r.branchless and "  branchless ✓" or "  branches ▲")
+  local n = r.cond_branches or 0
+  if n == 0 then return "0  branchless ✓" end
+  local d = r.data_branches or 0
+  return ("%d · %d data-dep%s"):format(n, d, d > 0 and " ▲" or "")
 end
 
 local function vec_cell(r)
   if status(r) then return "—" end
   return r.vector and "vectorized" or "scalar"
+end
+
+local function cmov_cell(r)
+  if status(r) then return "—" end
+  return tostring(r.cmov or 0) .. ((r.cmov or 0) > 0 and "  branchless moves ✓" or "")
 end
 
 -- show(fn, a, b, ra, rb, rerun): a/b = {name,flags}; ra/rb = analyze results; rerun = fn to re-run.
@@ -57,9 +65,11 @@ function M.show(fn, a, b, ra, rb, rerun)
   add("   " .. pad("", LW) .. pad(a.name, CW) .. b.name, "FoxSymdepsHeader")
   -- first column is the reference (no delta); the second carries the signed delta vs it.
   add("   " .. pad("instructions", LW) .. pad(ins_cell(ra, nil), CW) .. ins_cell(rb, ra), "FoxSymdepsBadge")
-  local br_alarm = (ra and ra.branchless == false) or (rb and rb.branchless == false)
+  -- the alarm is DATA-DEPENDENT branches (the mispredict risk), not benign loop/constant branches.
+  local br_alarm = (ra and (ra.data_branches or 0) > 0) or (rb and (rb.data_branches or 0) > 0)
   add("   " .. pad("branches", LW) .. pad(br_cell(ra), CW) .. br_cell(rb),
     br_alarm and "FoxSymdepsAlarm" or "FoxSymdepsBadge")
+  add("   " .. pad("cmov", LW) .. pad(cmov_cell(ra), CW) .. cmov_cell(rb), "FoxSymdepsBadge")
   add("   " .. pad("simd", LW) .. pad(vec_cell(ra), CW) .. vec_cell(rb), "FoxSymdepsBadge")
   local sa, sb = status(ra), status(rb)
   if sa then add("   " .. pad("", LW) .. a.name .. ": " .. sa, "FoxSymdepsBadge") end

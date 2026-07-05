@@ -52,6 +52,78 @@ function M.name_matches(label, fn_name)
   return false
 end
 
+-- ── data-dependent branch classification (heuristic, advisory) ───────────────────────────────────
+-- A conditional branch is DATA-DEPENDENT when the compare/test that sets its flags reads a value
+-- from MEMORY through a pointer register (a struct field / tick input) — the branch the CPU can't
+-- reliably predict, the misprediction risk on a branchless hot path. A compare of only immediates /
+-- registers never sourced from such a load (a loop bound, a constant) is NOT data-dependent. cmov
+-- (branchless conditional move) is counted too — the GOOD codegen the branchless hot path wants.
+local FLAG_PREFIX = { "cmp", "test", "sub", "add", "and", "or", "xor", "inc", "dec", "neg", "sbb", "adc", "bt" }
+local function is_flag_setter(op)
+  for _, p in ipairs(FLAG_PREFIX) do
+    if op == p or op == p .. "b" or op == p .. "w" or op == p .. "l" or op == p .. "q" then return true end
+  end
+  return false
+end
+local REG = {
+  rax = "a", eax = "a", ax = "a", al = "a", ah = "a", rbx = "b", ebx = "b", bx = "b", bl = "b", bh = "b",
+  rcx = "c", ecx = "c", cx = "c", cl = "c", ch = "c", rdx = "d", edx = "d", dx = "d", dl = "d", dh = "d",
+  rsi = "si", esi = "si", si = "si", sil = "si", rdi = "di", edi = "di", di = "di", dil = "di",
+  rbp = "bp", ebp = "bp", bp = "bp", bpl = "bp", rsp = "sp", esp = "sp", sp = "sp", spl = "sp",
+}
+local function reg_core(r)
+  r = r:gsub("^%%", "")
+  return REG[r] or r:match("^(r1?[0-5])") or r
+end
+-- a memory dereference through a register base OTHER than %rip (rip-relative = a constant-pool load,
+-- not runtime data). "8(%rdi)" / "(%rax,%rbx,8)" → true; ".LCPI0_0(%rip)" → false.
+local function derefs_memory(instr)
+  for reg in instr:gmatch("%(%%(%w+)") do if reg ~= "rip" then return true end end
+  return false
+end
+M._is_flag_setter = is_flag_setter
+M._derefs_memory = derefs_memory
+
+-- pure: classify a function's conditional branches → { data, indep, cmov, total }. `data` = the
+-- data-dependent (mispredict-risk) count; `cmov` = branchless conditional moves emitted.
+function M.classify_branches(lines)
+  local data, indep, cmov = 0, 0, 0
+  for i, l in ipairs(lines or {}) do
+    local op = l:match("^(%S+)") or ""
+    if op:match("^cmov") then cmov = cmov + 1 end
+    if COND[op] then
+      local setter
+      for j = i - 1, math.max(1, i - 8), -1 do
+        local jop = lines[j]:match("^(%S+)")
+        if jop then
+          if is_flag_setter(jop) then setter = j; break end
+          if jop:match("^j") or jop == "ret" or jop == "retq" then break end -- prior branch/return → stop
+        end
+      end
+      local dd = false
+      if setter then
+        local sl = lines[setter]
+        if derefs_memory(sl) then
+          dd = true -- the compare/test reads memory directly
+        else
+          local want = {} -- the registers the flag-setter reads
+          for r in sl:gmatch("%%(%w+)") do want[reg_core("%" .. r)] = true end
+          for k = setter - 1, math.max(1, setter - 8), -1 do
+            local kl = lines[k]
+            local kop = kl:match("^(%S+)")
+            if kop and kop:match("^mov") and derefs_memory(kl) then
+              local dest = kl:match("%%(%w+)%s*$") -- AT&T dest = last operand
+              if dest and want[reg_core("%" .. dest)] then dd = true; break end
+            end
+          end
+        end
+      end
+      if dd then data = data + 1 else indep = indep + 1 end
+    end
+  end
+  return { data = data, indep = indep, cmov = cmov, total = data + indep }
+end
+
 -- pure: metrics for a function's instruction lines.
 function M.analyze(lines)
   local insns, cond, calls, branch_lines, vector = 0, 0, 0, {}, false
@@ -65,9 +137,11 @@ function M.analyze(lines)
       if op:match("^vp") or op:match("^v%a+p[sd]$") then vector = true end -- packed AVX (vaddps/vpxor…)
     end
   end
+  local bc = M.classify_branches(lines)
   return {
     insns = insns, cond_branches = cond, branch_lines = branch_lines,
     calls = calls, vector = vector, branchless = cond == 0,
+    data_branches = bc.data, cmov = bc.cmov, -- data-dependent branch count + branchless moves
   }
 end
 

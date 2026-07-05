@@ -60,6 +60,23 @@ tt("tt::Other_Init<64u>(x)", "tt::ExecutionCore_Init<64>", false, "different tem
 tt("_ZN2tt3addEi", "tt::add", false, "a mangled fallback label does not spuriously match")
 tt(nil, "tt::add", false, "nil label → no match")
 
+-- classify_branches: data-dependent (mispredict-risk) vs independent, + cmov (branchless moves)
+local function bd(lines) return A.classify_branches(lines) end
+eq(bd({ "movq 8(%rdi), %rax", "cmpq $100, %rax", "jg .L1" }).data, 1, "load→cmp→jcc is data-dependent")
+eq(bd({ "cmpq $0, 16(%rdi)", "je .L2" }).data, 1, "cmp with a memory operand is data-dependent")
+eq(bd({ "cmpl %esi, %ecx", "jl .L3" }).data, 0, "register-vs-register (loop bound) is NOT data-dependent")
+eq(bd({ "cmpl %esi, %ecx", "jl .L3" }).indep, 1, "...counted as independent")
+eq(bd({ "cmpl $5, %ecx", "je .L4" }).data, 0, "cmp reg,const with no prior load is NOT data-dependent")
+eq(bd({ "movsd .LCPI0(%rip), %xmm0", "ucomisd %xmm1, %xmm0", "jae .L5" }).data, 0,
+  "a %rip constant-pool load is a constant, NOT data (mispredict-safe)")
+eq(bd({ "testq %rax, %rax", "cmovneq %rdx, %rax" }).cmov, 1, "cmov counted as a branchless move")
+eq(bd({ "testq %rax, %rax", "cmovneq %rdx, %rax" }).total, 0, "cmov is not a conditional branch")
+eq(bd({ "movl %eax, %ecx", "cmpl $3, %ecx", "je .L6" }).data, 0, "reg copied from reg (not memory) → independent")
+-- analyze() surfaces the classification
+local az = A.analyze({ "movq (%rdi), %rax", "cmpq $9, %rax", "jne .L1", "cmovel %edx, %eax", "retq" })
+eq(az.data_branches, 1, "analyze exposes data_branches")
+eq(az.cmov, 1, "analyze exposes cmov")
+
 -- strip_opt: removes opt/arch/LTO flags (so -S emits native asm, not LLVM IR), keeps the rest
 local so = A._strip_opt({ "-std=c++17", "-O2", "-flto", "-flto=thin", "-march=native", "-emit-llvm", "-Iinc", "-DFOO" })
 eq(table.concat(so, " "), "-std=c++17 -Iinc -DFOO", "strips -O/-flto/-march/-emit-llvm, keeps std/I/D")
