@@ -52,14 +52,74 @@ function M.data_lines(instrs, srclines)
   return out
 end
 
-local function apply(bufnr, dlines)
+-- pure: per-function branch verdict. fns = { {lo, hi, sig}, ... } (1-based source ranges + the
+-- signature line). Counts the conditional branches whose source line falls in each function's range.
+-- Verdict: "branchless" (green — the hot-path ideal) · "branches" (yellow — has branches, none
+-- data-dependent) · "data" (red — ≥1 data-dependent branch, the mispredict risk). Returns
+-- { { sig, verdict, nbr, ndata }, ... } — only for functions that actually contain branches or
+-- are worth a "branchless ✓" (i.e. all of them; a fn with zero branches earns the green).
+function M.verdicts(instrs, srclines, fns)
+  local det = asmdiff.classify_branches(instrs).details or {}
+  local out = {}
+  for _, fn in ipairs(fns or {}) do
+    local nbr, ndata = 0, 0
+    for _, d in ipairs(det) do
+      local sl = srclines[d.idx]
+      if sl and sl >= fn.lo and sl <= fn.hi then
+        nbr = nbr + 1
+        if d.data then ndata = ndata + 1 end
+      end
+    end
+    local verdict = (nbr == 0) and "branchless" or (ndata > 0 and "data" or "branches")
+    out[#out + 1] = { sig = fn.sig, verdict = verdict, nbr = nbr, ndata = ndata }
+  end
+  return out
+end
+
+-- the 1-based { lo, hi, sig } range of every function_definition in the buffer (sig = the line the
+-- verdict tag rides — the signature). treesitter; impure.
+local function all_fn_ranges(bufnr)
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "cpp")
+  if not ok or not parser then return {} end
+  local tree = parser:parse()[1]
+  if not tree then return {} end
+  local out = {}
+  local function walk(node)
+    if node:type() == "function_definition" then
+      local sr, _, er = node:range()
+      out[#out + 1] = { lo = sr + 1, hi = er + 1, sig = sr + 1 }
+    end
+    for c in node:iter_children() do walk(c) end
+  end
+  walk(tree:root())
+  return out
+end
+
+local function apply(bufnr, dlines, verdicts)
   if not (M.enabled and vim.api.nvim_buf_is_valid(bufnr)) then return end
   vim.api.nvim_buf_clear_namespace(bufnr, NS, 0, -1)
   local n = vim.api.nvim_buf_line_count(bufnr)
+  -- RED on each data-dependent branch line (the mispredict risk)
   for _, ln in ipairs(dlines) do
     if ln <= n then
       pcall(vim.api.nvim_buf_set_extmark, bufnr, NS, ln - 1, 0, {
-        virt_text = { { "  ▲ data-dependent branch", "FoxSymdepsWarn" } }, virt_text_pos = "eol",
+        virt_text = { { "  ▲ data-dependent branch", "FoxSymdepsAlarm" } }, virt_text_pos = "eol",
+      })
+    end
+  end
+  -- per-function verdict at the signature line: green branchless / yellow branches / red data-dep
+  for _, v in ipairs(verdicts or {}) do
+    if v.sig and v.sig <= n then
+      local text, hl
+      if v.verdict == "branchless" then
+        text, hl = "  ✓ branchless", "FoxSymdepsOk"
+      elseif v.verdict == "data" then
+        text, hl = ("  ▲ %d data-dependent"):format(v.ndata), "FoxSymdepsAlarm"
+      else
+        text, hl = ("  ▲ %d branch%s"):format(v.nbr, v.nbr == 1 and "" or "es"), "FoxSymdepsWarn"
+      end
+      pcall(vim.api.nvim_buf_set_extmark, bufnr, NS, v.sig - 1, 0, {
+        virt_text = { { text, hl } }, virt_text_pos = "eol",
       })
     end
   end
@@ -84,9 +144,12 @@ local function refresh(bufnr)
   argv[#argv + 1] = tmp
   pcall(vim.system, argv, { cwd = dir or vim.fn.fnamemodify(file, ":h"), text = true }, function(res)
     pcall(os.remove, tmp)
-    local instrs, srclines = M.parse(res.stdout or "", tempbase)
-    local dlines = M.data_lines(instrs, srclines)
-    vim.schedule(function() apply(bufnr, dlines) end)
+    local asm = res.stdout or ""
+    vim.schedule(function() -- treesitter (all_fn_ranges) needs the main loop
+      if not (M.enabled and vim.api.nvim_buf_is_valid(bufnr)) then return end
+      local instrs, srclines = M.parse(asm, tempbase)
+      apply(bufnr, M.data_lines(instrs, srclines), M.verdicts(instrs, srclines, all_fn_ranges(bufnr)))
+    end)
   end)
 end
 

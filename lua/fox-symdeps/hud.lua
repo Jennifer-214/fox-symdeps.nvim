@@ -802,13 +802,16 @@ end
 -- w: scan the symbol's files for hardcoded width literals (== its size, byte-ish, no sizeof) and
 -- send the suspects to quickfix — the break class W18's static_assert check can't catch (W21).
 function Hud:_width_lits()
+  if self.ctx.kind == "function" then -- width-lits is a TYPE feature; on a function it just noise-outs
+    return self:set_message("width-lits (w): that's for types — put the cursor on a struct", "info")
+  end
   local ld = self.layout and self.layout.data
   local size = ld and ld.size
   if not size then
     local msg = (ld and ld.is_template)
-      and "templated type — no concrete size un-instantiated; put the cursor on a concrete Foo<N> use to scan width literals"
-      or "size unknown — can't scan width literals"
-    return vim.notify("fox-symdeps · " .. msg, vim.log.levels.WARN)
+      and "width-lits (w): templated type — no concrete size; put the cursor on a concrete Foo<N> use"
+      or "width-lits (w): size unknown — can't scan (needs a resolved type size)"
+    return self:set_message(msg, "warn") -- persistent + readable, not a flashing notify
   end
   local files = {}
   local function collect(tree)

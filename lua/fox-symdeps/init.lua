@@ -149,7 +149,7 @@ local function set_highlights(p)
   hl("FoxSymdepsHeader", { fg = p.header or "#d4985a", bold = true })                        -- peach
   hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#b0a498" })                            -- warm
   hl("FoxSymdepsTreeCount", { fg = p.header or "#d4985a", bold = true })                     -- neo-tree count badge
-  hl("FoxSymdepsSelection", { bg = p.selection or "#4d2f34" })                               -- warm rose-brown row bar
+  hl("FoxSymdepsSelection", { bg = p.selection or "#b5702f", fg = "#1a140e", bold = true })    -- bright peach row bar + dark ink for contrast
   hl("FoxSymdepsWarn", { fg = p.warn or "#d4b483", bold = true })                            -- wheat — caution (▲ straddle)
   hl("FoxSymdepsAlarm", { fg = p.alarm or "#b0603a", bold = true })                          -- terracotta — breaks/danger (not raw red)
   hl("FoxSymdepsOk", { fg = p.ok or "#7aab88" })                                             -- green — clean/ok
@@ -174,6 +174,17 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("FoxSymdepsCockpit", function()
     require("fox-symdeps.cockpit").toggle()
   end, { desc = "fox-symdeps: toggle cockpit mode (auto-dock panel on C++ buffers)" })
+  vim.api.nvim_create_user_command("FoxSymdepsReloadAll", function()
+    -- clear every fox-symdeps.* submodule so the next require re-reads from disk (keymaps require
+    -- fresh each press). Unlike :FoxSymdepsReload (lenses only) this picks up core edits (hud/clangd/…)
+    -- WITHOUT restarting nvim — the fix for "I changed a core file but nvim still runs the old one."
+    local n = 0
+    for name in pairs(package.loaded) do
+      if name:match("^fox%-symdeps%.") and name ~= "fox-symdeps.init" then package.loaded[name] = nil; n = n + 1 end
+    end
+    set_highlights(M.config.palette)
+    vim.notify(("fox-symdeps · reloaded %d module(s) from disk (core + lenses)"):format(n), vim.log.levels.INFO)
+  end, { desc = "fox-symdeps: hot-reload ALL modules (core + lenses) from disk" })
   -- re-apply on colorscheme change so a theme swap re-themes the HUD
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),
