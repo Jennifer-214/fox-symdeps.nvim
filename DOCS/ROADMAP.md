@@ -141,11 +141,85 @@ The fox-health pattern (one `lib*.a` → many surfaces) applied to the analysis:
     inspected symbol through the runtime-provider contract (keyed by symbol; whatever transport backs it) —
     but it never hosts the live dashboard itself.
 
-## Priority
+## Backlog — 2026-07-05 six-lens agent sweep
 
-Near-term, highest-leverage: (1) **diagnostics integration** (ambient, hooks the whole ecosystem),
-(2) **aggregate dashboard** (the exploratory marquee), (3) **visual-selection analyze**. The toolchain /
-measurement pieces are the big bets once the plugin is fleshed out.
+Six parallel agents audited the plugin (UX/friction · compiled-reality domain gaps · nvim ecosystem ·
+half-built/missing lenses · polish/correctness · beyond-the-plugin toolchain). Ranked build order below;
+items multiple lenses independently surfaced are marked **[converged]**. Full per-lens output is in the
+session transcript.
 
-Guardrail: the plugin exists to serve *building the engine*. Keep it in that ratio — don't let the cockpit
+### Tier 0 — trust fixes (do first; small; the tool is confidently *wrong* here)
+
+- [ ] **Width-lit precision at size 4 & 8.** `widthlit.is_suspect`'s bare `*N`/`+N` stride rule fires on
+  `idx*8+off` when the inspected type is 8 B — the most common width in the engine, so `w` buries real
+  suspects. For size ≤ 8 drop the bare stride heuristic; require a strong context (byte-array dim / `alignas`
+  / a mem*/fwrite call *with the literal as an arg*). Add size-4/8 negative tests (`test_widthlit` only covers 16).
+- [ ] **asm-diff exact function match.** `asmdiff.run` matches the block by *substring* (`name:find(fn_name)`),
+  so `add` can grab a `padding()` block and report the wrong function's counts — a false "branchless ✓" is a
+  dangerous all-clear. Match the demangled *qualified* name exactly (up to `(`). Factor the matcher pure + test
+  collisions (`add` vs `padding`, `tt::add` vs `tt::add_fees`).
+- [ ] **sizeprobe surfaces compile errors** (LANDMINES L1, still open). `sizeprobe.compute` returns `nil` on a
+  real compile failure → templates read "needs compile_commands.json." Thread the first `error:` line out like
+  asmdiff/recordlayout already do.
+
+### Tier 1 — the "feels like an IDE" wins (converged across UX + integration lenses)
+
+- [ ] **[converged] Always-on statusline / winbar chip** — `◇ ExecutionCore 66B ▲` in the chrome, CursorHold-fed,
+  reusing `ambient.note`. The purest cure for "modal"; passively shows the sizeof delta on external edits. Seeds
+  the public `current()` cache → the Lua API. *(UX #1, Integration #3.)*
+- [ ] **[converged] Graph-walk drill-in** — a HUD key that re-inspects the symbol *named by the selected row*
+  (a Uses type / caller / includer) with a breadcrumb stack + back, instead of jump→reopen. Builds on
+  `panel` history + `hud:reset`. The roadmap's "graph navigation" marquee. *(UX #3, Lenses #1.)*
+- [ ] **Cockpit auto-panel** — ft-triggered auto-dock of `panel` on C++ buffers (min-width gated), so the
+  cursor-following analysis is simply *there*. Makes the co-programming loop the default.
+- [ ] **Sticky / default-open sections** — pairs with the collapse-by-default just shipped: an
+  `opts.default_open` per kind (struct → Fields/Layout, fn → Calls) + module-level fold persistence, so the
+  sections you always read start open.
+
+### Tier 2 — flagship compiled-reality tiles (domain lens; engine-specific)
+
+- [ ] **[converged] Straddler dashboard tile — with deliberate-pad discrimination.** The parked pahole tile,
+  but a *naive* version is WRONG here: the engine has ~44 intentional `_pad[]` fields (cache-line isolation, e.g.
+  `ExecutionCore::_pad_perm[63]`). Classify each gap — a `_pad`-named / `alignas`-adjacent gap is deliberate,
+  an unnamed interior hole is reclaimable. `recordlayout.parse` already keeps per-record `offsets` (currently
+  discarded by the Biggest-structs tile); the census compile already runs. *(Lenses #2, Domain #3.)*
+- [ ] **Cache-lines-touched-per-hot-op.** Cross the fields a hot fn touches (`writers` read/write sets) with
+  their offsets (`layout`) → "touches {0,8,32} → 1 line ✓ / spans 2 ✗." Automates the exact hand-optimization
+  `ExecutionCore.hpp`'s own comments narrate (the `live_sl` 56→80 straddle fix). Reuses two built primitives.
+- [ ] **[converged] Layout-drift vs git HEAD.** Compile the file's `git show HEAD:path` with the same driver,
+  diff: "sizeof 64→72, field `pnl` @8→@16." Catches the silent `fwrite`/`memcmp` break `FixedPointN.hpp` fears
+  (breaks with NO compile error). Must honor L1 — a failed HEAD compile is "unverified," never "unchanged."
+  *(Domain #2, Lenses #4.)*
+
+### Tier 3 — robustness & the strategic unify (bigger / later)
+
+- [ ] **[converged] Ambient diagnostics from all lenses → Trouble.** `diagnostics.set` is already multi-group but
+  only `struct_layout` publishes. Route width-lits (pure scan → auto) + false-sharing (heavy → on-demand only,
+  per L1) through it. *(Integration #4, Lenses #3, Beyond #6.)*
+- [ ] **Unify the cockpit asm with the existing CI conformance analyzer.** The engine ALREADY enforces a branch/
+  size gate (`check_latency_path_conformance.py` + budgets, shared pre-commit). The cockpit's `clang -S` path is
+  a *divergent second impl* (vs the gate's `g++ -O3 + objdump`) → shows numbers CI doesn't gate. Give the analyzer
+  a `--json <symbol>` mode; the HUD consumes it for manifest fns → shows exactly what CI gates. Root-fixes the
+  asm-match bug too. *(Beyond #1; resolves Polish #2 at the source.)*
+- [ ] **Grep/systemlist family: loud failure + async.** `compose`/`includers`/`aggregate`/`browse`/dashboard do
+  `pcall(systemlist)` with no `shell_error` check → rg-absent renders as a calm "nothing here." Also: `inspect`
+  double-resolves root members (`compose.tree` + `compose.uses` each call `members`), and greps run sync on the
+  main loop (visible freeze on the 313-file engine). Check `shell_error`, cache root members, go async.
+- [ ] **Public Lua API + `User FoxSymdeps*` events** — `layout_of`/`offenders`/`straddlers_of`/`asm_of`/`current`
+  + autocmds on inspect. The seam the statusline, CI emitter, and AI-explain all ride. *(Integration #1/#2.)*
+- [ ] **Anonymous-union fields** dropped from the field map (`layout.parse_field` needs an `Offset:`) → byte map
+  paints live union bytes as padding. Detect via documentSymbol children or annotate "anon — offset unknown."
+
+### Also captured (lower tiers, full list in transcript)
+
+Domain: atomic/seqlock memory-order lens · llvm-mca µop/port-pressure · vectorization verification
+(`-Rpass`) · float-in-accounting detector · `has_unique_object_representations` byte-safety probe · `fox-bench`
+PMU (the gate's own deferred layer-2). Lenses: alias-aware consumers · dead/write-only-field lens · who-allocates
+lens · hot-path-budget dashboard tile · enum/bitfield packing lens. Integration: `gs{motion}` operator + picker
+extension w/ layout preview · neo-tree risk badging. UX: recent-symbols switcher · pin-and-compare layouts.
+Beyond: field-offset straddle fingerprint in the gate · AI-explain over facts · `live_facts` contract + null
+adapter · collapse the manifests to one `analysis-manifest.json` SSoT. Polish: header-basename collision inflates
+Includers/widest counts · dashboard census fails on the incidental buffer · byte-map letters wrap at 26 fields.
+
+**Guardrail:** the plugin exists to serve *building the engine*. Keep it in that ratio — don't let the cockpit
 become the mission.
