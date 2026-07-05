@@ -432,6 +432,15 @@ local function ago(t)
   return math.floor(d / 86400) .. "d ago"
 end
 
+-- section-level collapse state (default COLLAPSED). Keyed by a stable section id; persists across
+-- re-inspects on the same HUD so a section you opened stays open as you move through symbols.
+function Hud:_sec_collapsed(id)
+  self.sec_collapsed = self.sec_collapsed or {}
+  local v = self.sec_collapsed[id]
+  if v == nil then return true end -- clean overview by default: every section folded
+  return v
+end
+
 function Hud:render()
   if self.closed or not vim.api.nvim_buf_is_valid(self.buf) then return end
   local lines, hls = {}, {}
@@ -447,6 +456,13 @@ function Hud:render()
   local function add_leaf(text, loc, hl, broken)
     self.items[#self.items + 1] =
       { bufline = add(text, hl), kind = "entry", loc = loc, broken = broken, qftext = vim.trim(text) }
+  end
+  -- a collapsible section header (the toggle). `label` carries the glyph + name + count. Returns
+  -- whether the body should render (i.e. the section is expanded). Body + trailing blank go inside.
+  local function sec_header(id, label, hl)
+    local collapsed = self:_sec_collapsed(id)
+    add_branch((" %s %s"):format(collapsed and "▸" or "▾", label), "section", { sec = id }, hl or "FoxSymdepsHeader")
+    return not collapsed
   end
   local home = vim.fn.getcwd()
   local function render_files(files)
@@ -491,25 +507,27 @@ function Hud:render()
   -- Fields cache-line map (types only)
   local fs = self.fields
   if self.ctx.kind ~= "function" and fs and (fs.state == "loading" or (fs.state == "ok" and #fs.items > 0)) then
-    add(" ▪ Fields" .. (fs.state == "ok" and (" (" .. #fs.items .. ")") or ""), "FoxSymdepsHeader")
-    if fs.state == "loading" then
-      add("   " .. SPIN[self.spin] .. " mapping…", "FoxSymdepsBadge")
-    else
-      local prev_end = 0
-      for _, f in ipairs(fs.items) do
-        if f.offset > prev_end then
-          add(("       · %d B padding"):format(f.offset - prev_end), "FoxSymdepsBadge")
+    local label = "▪ Fields" .. (fs.state == "ok" and (" (" .. #fs.items .. ")") or "")
+    if sec_header("fields", label) then
+      if fs.state == "loading" then
+        add("   " .. SPIN[self.spin] .. " mapping…", "FoxSymdepsBadge")
+      else
+        local prev_end = 0
+        for _, f in ipairs(fs.items) do
+          if f.offset > prev_end then
+            add(("       · %d B padding"):format(f.offset - prev_end), "FoxSymdepsBadge")
+          end
+          local lo = math.floor(f.offset / 64)
+          local hi = math.floor((f.offset + math.max(f.size, 1) - 1) / 64)
+          local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ▲ straddles")
+          local ty = f.type or ""
+          if #ty > 18 then ty = ty:sub(1, 17) .. "…" end
+          add(("     @%-4d %-12s %3dB %-18s %s"):format(f.offset, f.name, f.size, ty, lstr), "FoxSymdepsBadge")
+          prev_end = f.offset + f.size
         end
-        local lo = math.floor(f.offset / 64)
-        local hi = math.floor((f.offset + math.max(f.size, 1) - 1) / 64)
-        local lstr = (lo == hi) and ("L" .. lo) or ("L" .. lo .. "–" .. hi .. "  ▲ straddles")
-        local ty = f.type or ""
-        if #ty > 18 then ty = ty:sub(1, 17) .. "…" end
-        add(("     @%-4d %-12s %3dB %-18s %s"):format(f.offset, f.name, f.size, ty, lstr), "FoxSymdepsBadge")
-        prev_end = f.offset + f.size
       end
+      add("")
     end
-    add("")
   end
 
   -- Visual byte-map (types only): fields drawn on 64B cache lines. Gated to a wide window (64-col
@@ -518,41 +536,44 @@ function Hud:render()
     and self.layout.state == "ok" and self.layout.data and self.layout.data.size
     and vim.api.nvim_win_is_valid(self.win) and vim.api.nvim_win_get_width(self.win) >= 69 then
     local bm = require("fox-symdeps.bytemap").render(fs.items, self.layout.data.size)
-    add(" ▦ Byte map" .. (bm.straddle and "  ▲ straddles a cache line" or ""),
-      bm.straddle and "FoxSymdepsWarn" or "FoxSymdepsHeader")
-    for _, l in ipairs(bm.lines) do add("   " .. l, "FoxSymdepsBadge") end
-    add("")
+    if sec_header("bytemap", "▦ Byte map" .. (bm.straddle and "  ▲ straddles a cache line" or ""),
+      bm.straddle and "FoxSymdepsWarn" or "FoxSymdepsHeader") then
+      for _, l in ipairs(bm.lines) do add("   " .. l, "FoxSymdepsBadge") end
+      add("")
+    end
   end
 
   -- Reverse composition (types only): what this struct contains, recursively (W22)
   if self.ctx.kind ~= "function" and self.composition and #self.composition > 0 then
-    add(" ⊟ Contains", "FoxSymdepsHeader")
-    local function render_comp(nodes, depth)
-      for _, n in ipairs(nodes) do
-        add(("   %s%s : %s"):format(("  "):rep(depth), n.name, n.type), "FoxSymdepsBadge")
-        if n.children then render_comp(n.children, depth + 1) end
+    if sec_header("contains", "⊟ Contains") then
+      local function render_comp(nodes, depth)
+        for _, n in ipairs(nodes) do
+          add(("   %s%s : %s"):format(("  "):rep(depth), n.name, n.type), "FoxSymdepsBadge")
+          if n.children then render_comp(n.children, depth + 1) end
+        end
       end
+      render_comp(self.composition, 0)
+      add("")
     end
-    render_comp(self.composition, 0)
-    add("")
   end
 
   -- Upstream "Uses" (types only): distinct types this struct depends on — the mirror of Consumers.
   -- Each is jumpable to its definition (add_leaf); an unresolved one (e.g. a template param T) stays plain.
   if self.ctx.kind ~= "function" and self.uses ~= nil then
-    add(" ⊐ Uses" .. (#self.uses > 0 and (" (" .. #self.uses .. ")") or ""), "FoxSymdepsHeader")
-    if #self.uses == 0 then
-      add("   — (no struct deps)", "FoxSymdepsBadge")
-    else
-      for _, u in ipairs(self.uses) do
-        if u.file then
-          add_leaf("   " .. u.name, { file = u.file, line = u.line or 1 })
-        else
-          add("   " .. u.name, "FoxSymdepsBadge")
+    if sec_header("uses", "⊐ Uses" .. (#self.uses > 0 and (" (" .. #self.uses .. ")") or "")) then
+      if #self.uses == 0 then
+        add("   — (no struct deps)", "FoxSymdepsBadge")
+      else
+        for _, u in ipairs(self.uses) do
+          if u.file then
+            add_leaf("   " .. u.name, { file = u.file, line = u.line or 1 })
+          else
+            add("   " .. u.name, "FoxSymdepsBadge")
+          end
         end
       end
+      add("")
     end
-    add("")
   end
 
   -- Includers (types only): files that #include this symbol's header — the honest breadth answer
@@ -560,17 +581,18 @@ function Hud:render()
   -- into per-directory subsections (each a collapsible dir → file leaves), sitting right above
   -- Consumers so the two read together: "42 files include it · N name it directly."
   if self.ctx.kind ~= "function" and self.includers and self.includers.total > 0 then
-    add((" ⊃ Includers (%d)"):format(self.includers.total), "FoxSymdepsHeader")
-    for _, g in ipairs(self.includers.groups) do
-      add_branch(("   %s %s (%d)"):format(g.collapsed and "▸" or "▾", g.dir, g.count),
-        "incdir", g, "FoxSymdepsBadge")
-      if not g.collapsed then
-        for _, f in ipairs(g.files) do
-          add_leaf(("       %s  :%d"):format(f.base or f.rel, f.line or 1), { file = f.file, line = f.line or 1 })
+    if sec_header("includers", ("⊃ Includers (%d)"):format(self.includers.total)) then
+      for _, g in ipairs(self.includers.groups) do
+        add_branch(("   %s %s (%d)"):format(g.collapsed and "▸" or "▾", g.dir, g.count),
+          "incdir", g, "FoxSymdepsBadge")
+        if not g.collapsed then
+          for _, f in ipairs(g.files) do
+            add_leaf(("       %s  :%d"):format(f.base or f.rel, f.line or 1), { file = f.file, line = f.line or 1 })
+          end
         end
       end
+      add("")
     end
-    add("")
   end
 
   -- Consumers: collapsible role → file → function tree (+ optional /filter)
@@ -579,46 +601,51 @@ function Hud:render()
   local total = 0
   for _, role in ipairs(vtree) do total = total + role.count end
   local count = c.state == "ok" and total or nil
-  local chdr = " ◇ " .. (self.ctx.kind == "function" and "Called by" or "Consumers") .. (count and (" (" .. count .. ")") or "")
-  if self.filter then chdr = chdr .. "  /" .. self.filter end
-  add(chdr, "FoxSymdepsHeader")
-  if c.state == "loading" then
-    add("   " .. SPIN[self.spin] .. " finding…", "FoxSymdepsBadge")
-  elseif c.state == "no_client" then
-    add("   — (clangd — see Layout)", "FoxSymdepsBadge")
-  elseif not count or count == 0 then
-    add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
-  elseif self.ctx.kind == "function" then
-    for _, role in ipairs(vtree) do render_files(role.files) end -- single "Called by" role → files directly
-  else
-    render_tree(vtree)
+  local clabel = "◇ " .. (self.ctx.kind == "function" and "Called by" or "Consumers") .. (count and (" (" .. count .. ")") or "")
+  if self.filter then clabel = clabel .. "  /" .. self.filter end
+  if sec_header("consumers", clabel) then
+    if c.state == "loading" then
+      add("   " .. SPIN[self.spin] .. " finding…", "FoxSymdepsBadge")
+    elseif c.state == "no_client" then
+      add("   — (clangd — see Layout)", "FoxSymdepsBadge")
+    elseif not count or count == 0 then
+      add(self.filter and ("   no match for /" .. self.filter) or "   none", "FoxSymdepsBadge")
+    elseif self.ctx.kind == "function" then
+      for _, role in ipairs(vtree) do render_files(role.files) end -- single "Called by" role → files directly
+    else
+      render_tree(vtree)
+    end
+    add("")
   end
 
-  -- Calls (functions only): what this function calls — the outbound direction (mirror of "Called by")
+  -- Calls (functions only): what this function calls — the outbound direction (mirror of "Called by").
+  -- calls_tree yields a single "Calls" role, so render its files directly (no redundant inner header).
   local calls = self.calls
   if self.ctx.kind == "function" and calls and (calls.state == "loading" or (calls.state == "ok" and #calls.tree > 0)) then
-    add("")
     local n = 0
     for _, role in ipairs(calls.tree) do n = n + (role.count or 0) end
-    add(" → Calls" .. (calls.state == "ok" and (" (" .. n .. ")") or ""), "FoxSymdepsHeader")
-    if calls.state == "loading" then
-      add("   " .. SPIN[self.spin] .. " walking…", "FoxSymdepsBadge")
-    else
-      render_tree(calls.tree)
+    if sec_header("calls", "→ Calls" .. (calls.state == "ok" and (" (" .. n .. ")") or "")) then
+      if calls.state == "loading" then
+        add("   " .. SPIN[self.spin] .. " walking…", "FoxSymdepsBadge")
+      else
+        for _, role in ipairs(calls.tree) do render_files(role.files) end
+      end
+      add("")
     end
   end
 
   -- Call trace (functions only): transitive callers, indented by depth
   local tr = self.trace
   if self.ctx.kind == "function" and tr and (tr.state == "loading" or (tr.state == "ok" and #tr.items > 0)) then
-    add("")
-    add(" ↪ Call trace" .. (tr.state == "ok" and (" (" .. #tr.items .. ")") or ""), "FoxSymdepsHeader")
-    if tr.state == "loading" then
-      add("   " .. SPIN[self.spin] .. " walking…", "FoxSymdepsBadge")
-    else
-      for _, it in ipairs(tr.items) do
-        add_leaf(("   %s%s  :%d"):format(("  "):rep(it.depth), it.name, it.line), { file = it.file, line = it.line })
+    if sec_header("trace", "↪ Call trace" .. (tr.state == "ok" and (" (" .. #tr.items .. ")") or "")) then
+      if tr.state == "loading" then
+        add("   " .. SPIN[self.spin] .. " walking…", "FoxSymdepsBadge")
+      else
+        for _, it in ipairs(tr.items) do
+          add_leaf(("   %s%s  :%d"):format(("  "):rep(it.depth), it.name, it.line), { file = it.file, line = it.line })
+        end
       end
+      add("")
     end
   end
 
@@ -627,14 +654,16 @@ function Hud:render()
   for _, sec in ipairs(self.sections or {}) do
     local has = sec.tree and #sec.tree > 0
     if sec.tree ~= nil and (sec.state == "loading" or (sec.state == "ok" and has)) then
-      add("")
       local scount = 0
       for _, role in ipairs(sec.tree or {}) do scount = scount + (role.count or 0) end
-      add(" " .. sec.label .. ((sec.state == "ok" and has) and (" (" .. scount .. ")") or ""), "FoxSymdepsHeader")
-      if sec.state == "loading" then
-        add("   " .. SPIN[self.spin] .. " analyzing…", "FoxSymdepsBadge")
-      elseif has then
-        render_tree(sec.tree)
+      local slabel = sec.label .. ((sec.state == "ok" and has) and (" (" .. scount .. ")") or "")
+      if sec_header("provsec:" .. sec.key, slabel) then
+        if sec.state == "loading" then
+          add("   " .. SPIN[self.spin] .. " analyzing…", "FoxSymdepsBadge")
+        elseif has then
+          render_tree(sec.tree)
+        end
+        add("")
       end
     end
   end
@@ -699,7 +728,11 @@ end
 function Hud:_activate()
   local it = self.items[self.sel]
   if not it then return end
-  if it.node then
+  if it.node and it.node.sec then
+    self.sec_collapsed = self.sec_collapsed or {}
+    self.sec_collapsed[it.node.sec] = not self:_sec_collapsed(it.node.sec)
+    self:render()
+  elseif it.node then
     it.node.collapsed = not it.node.collapsed
     self:render()
   elseif it.loc then
@@ -831,10 +864,14 @@ end
 -- l / h: expand / collapse the selected branch.
 function Hud:_set_collapsed(want)
   local it = self.items[self.sel]
-  if it and it.node then
+  if not (it and it.node) then return end
+  if it.node.sec then
+    self.sec_collapsed = self.sec_collapsed or {}
+    self.sec_collapsed[it.node.sec] = want
+  else
     it.node.collapsed = want
-    self:render()
   end
+  self:render()
 end
 
 function Hud:close()
