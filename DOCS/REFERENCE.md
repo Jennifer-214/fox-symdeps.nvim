@@ -33,6 +33,7 @@ is lenses-only) or an nvim restart.
 | `ROADMAP.md`          | Built-vs-next: the source↔asm explorer section, the six-lens agent-sweep backlog (tiered), every shipped tile/lens. |
 | `TAG-INTEGRATION.md`  | The `[TAG]_` comment scheme + the plugin's TWO-WAY role (read + generate/verify `[DERIVED]`) + the scaffolded seam. |
 | `LANDMINES.md`        | The swallowed-error bug class + the "never confidently wrong" trust rule. |
+| `EDGE-CASES.md`       | The running list of fixed / pending edge cases + inherent caveats — the concrete side of the cohesion discipline. |
 
 ## Current state (what's built)
 
@@ -74,8 +75,9 @@ as complexity grows (possibly in a dedicated session).
    as a calm "nothing here"). Tag-independent.
 4. **Cohesion/usability as a CLASS** — rough edges (misleading messages, type-vs-function-vs-template
    handling, color/glyph consistency, cursor-context assumptions) are a *class*, not one-offs. Discipline:
-   a running edge-case list + a periodic cohesion audit. Headless tests the mechanical; the operator
-   surfaces the interactive/visual layer (documented reality, not a gap).
+   a running edge-case list (**EDGE-CASES.md** — the concrete fixed/pending list) + a periodic cohesion
+   audit. Headless tests the mechanical; the operator surfaces the interactive/visual layer (documented
+   reality, not a gap).
 5. **Beyond the editor** — unify with the engine's existing conformance gate (both do asm analysis, on
    divergent compilers); the plugin as editor-side generator, the gate as CI-side verifier, one fact set.
    → ROADMAP "beyond the plugin".
