@@ -42,6 +42,37 @@ local function sorted_keys(set)
   return out
 end
 
+-- pure: per-function cache-line access density over a struct's fields — how many DISTINCT 64 B lines
+-- of the struct each function touches. `touches`: fn -> set of field names it references (read OR
+-- write). A function touching >1 line per call is the working-set-density concern (every extra line
+-- is a load); this is path-agnostic — it reports EVERY function (hot or slow), not just budgeted ones.
+-- Returns { { fn, nlines, lines = {sorted 0-based line indices} }, ... } sorted by nlines desc, fn.
+function M.density(fields, touches, opts)
+  local cl = (opts and opts.cache_line) or CACHE_LINE
+  local byname = {}
+  for _, f in ipairs(fields or {}) do byname[f.name] = f end
+  local out = {}
+  for fn, fset in pairs(touches or {}) do
+    local lineset = {}
+    for name in pairs(fset) do
+      local f = byname[name]
+      if f then
+        local first, last = lines_of(f, cl)
+        for ln = first, last do lineset[ln] = true end
+      end
+    end
+    local lines = {}
+    for ln in pairs(lineset) do lines[#lines + 1] = ln end
+    table.sort(lines)
+    if #lines > 0 then out[#out + 1] = { fn = fn, nlines = #lines, lines = lines } end
+  end
+  table.sort(out, function(a, b)
+    if a.nlines ~= b.nlines then return a.nlines > b.nlines end
+    return a.fn < b.fn
+  end)
+  return out
+end
+
 -- fields:  { {name, offset, size}, ... }   (as layout.fields returns)
 -- writers: name -> (list|set) of writer-function names   (from L0)
 -- opts.cache_line (default 64)
@@ -156,6 +187,7 @@ function M.for_struct(ctx, cb)
       if err or not syms then return cb(nil, "empty") end
       local fpos = field_positions(syms, ctx.symbol) or {}
       local writers, sites, cache = {}, {}, {}
+      local touches = {} -- fn -> set of field names it references (read OR write) — for density
       local function content_of(uri)
         local file = vim.uri_to_fname(uri)
         if cache[file] == nil then
@@ -166,7 +198,8 @@ function M.for_struct(ctx, cb)
       end
       local pending = 0
       local function finish()
-        cb({ fields = fields, writers = writers, sites = sites, risks = M.risk(fields, writers) }, "ok")
+        cb({ fields = fields, writers = writers, sites = sites, touches = touches,
+          risks = M.risk(fields, writers) }, "ok")
       end
       for _, f in ipairs(fields) do
         local p = fpos[f.name]
@@ -180,8 +213,10 @@ function M.for_struct(ctx, cb)
                 local content, file = content_of(r.uri)
                 if content then
                   local row0, col0 = r.range.start.line, r.range.start.character
+                  local scope = classify._scope_at(content, row0, col0) or "?"
+                  touches[scope] = touches[scope] or {} -- every reference (read or write) → density
+                  touches[scope][f.name] = true
                   if M.is_write_at(content, row0, col0) then
-                    local scope = classify._scope_at(content, row0, col0) or "?"
                     wset[scope] = true
                     sites[f.name] = sites[f.name] or {}
                     table.insert(sites[f.name], { file = file, line = row0 + 1, scope = scope })

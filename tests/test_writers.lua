@@ -62,5 +62,30 @@ do
   ok(has(risks, "a", "b") ~= nil, "a↔b risk on line 1")
 end
 
+-- density: distinct cache lines each function touches, sorted most-first
+do
+  local fields = {
+    { name = "a", offset = 0, size = 8 },   -- line 0
+    { name = "b", offset = 8, size = 8 },   -- line 0
+    { name = "c", offset = 64, size = 8 },  -- line 1
+    { name = "d", offset = 130, size = 8 }, -- line 2
+  }
+  local touches = {
+    Tick = { a = true, b = true },        -- both on line 0 → 1 line
+    Reset = { a = true, c = true, d = true }, -- lines 0,1,2 → 3 lines
+    Peek = { b = true },                  -- line 0 → 1 line
+  }
+  local d = W.density(fields, touches)
+  ok(#d == 3, "3 functions with touches")
+  ok(d[1].fn == "Reset" and d[1].nlines == 3, "most-lines-first: Reset spans 3 lines")
+  ok(d[1].lines[1] == 0 and d[1].lines[2] == 1 and d[1].lines[3] == 2, "Reset's distinct lines sorted")
+  ok(d[2].nlines == 1 and d[3].nlines == 1, "the two 1-line functions follow")
+  ok(d[2].fn == "Peek" and d[3].fn == "Tick", "ties broken alphabetically (Peek < Tick)")
+  -- a field not in the layout is ignored; a straddling field counts both its lines
+  local d2 = W.density({ { name = "s", offset = 60, size = 8 } }, { F = { s = true, ghost = true } })
+  ok(#d2 == 1 and d2[1].nlines == 2, "straddling field s (60..67) counts lines 0 and 1; unknown field ignored")
+  ok(#W.density({}, {}) == 0, "empty → none")
+end
+
 io.write(("test_writers: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

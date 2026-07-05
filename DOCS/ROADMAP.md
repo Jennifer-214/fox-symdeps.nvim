@@ -187,9 +187,18 @@ session transcript.
   showed a naive pad-reclaim tile is WRONG (the gap before `ExecutionCore::live_tp` is *required* `__int128`
   alignment, not waste). Engine e2e: 12 real straddlers (`tt::Order<64>::pre_resolved @160 48B`, …), 175 skipped.
   *Deferred:* the reclaimable-hole classifier (needs per-field alignof to separate required pad from waste).
-- [ ] **Cache-lines-touched-per-hot-op.** Cross the fields a hot fn touches (`writers` read/write sets) with
-  their offsets (`layout`) → "touches {0,8,32} → 1 line ✓ / spans 2 ✗." Automates the exact hand-optimization
-  `ExecutionCore.hpp`'s own comments narrate (the `live_sl` 56→80 straddle fix). Reuses two built primitives.
+- [x] **Cache-lines-touched (access-density lens, `t`).** For the struct under cursor, how many distinct
+  64 B lines each function that touches it spans — the working-set-density signal `ExecutionCore.hpp`'s
+  comments narrate hand-optimizing (packing `active/live_tp/live_sl` into line 0 to cut a tick from 2 loads
+  to 1). `writers.for_struct` now tracks every reference's enclosing function (read OR write), pure
+  `writers.density` maps touched fields → distinct lines, most-lines-first. On-demand (heavy), advisory
+  (never repacks — sizeof is fingerprinted). **Path-agnostic** (see standing requirement below).
+
+> **Standing requirement (2026-07-05): hot AND slow path parity.** Analyses must not be gated to the
+> hot-path manifest — every function-/struct-level lens works on any code (hot or slow) and, where a
+> path distinction is meaningful, *surfaces* it rather than filtering. Most of the plugin already meets
+> this (layout, asm, straddlers, chip, density all run on any symbol); the only hot-path-gated piece is
+> the `hotpath` budget lens, which reads `latency_path_budgets.json`. New analyses inherit this rule.
 - [ ] **[converged] Layout-drift vs git HEAD.** Compile the file's `git show HEAD:path` with the same driver,
   diff: "sizeof 64→72, field `pnl` @8→@16." Catches the silent `fwrite`/`memcmp` break `FixedPointN.hpp` fears
   (breaks with NO compile error). Must honor L1 — a failed HEAD compile is "unverified," never "unchanged."
