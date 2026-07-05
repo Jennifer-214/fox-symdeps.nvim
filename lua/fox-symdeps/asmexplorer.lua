@@ -124,12 +124,14 @@ local function render(st, built)
   sync(st)
 end
 
-local function compile(st, cb)
-  local file = vim.api.nvim_buf_get_name(st.srcbuf)
+-- compile the buffer with the real toolchain (-S -g), build the source↔asm map. cb(built) | cb(nil,err).
+-- Takes a bufnr (not the explorer state) so facts.lua + others can reuse it without a window.
+local function compile(bufnr, cb)
+  local file = vim.api.nvim_buf_get_name(bufnr)
   if file == "" then return cb(nil, "buffer has no file on disk (save it first)") end
   local flags, dir, cc = sizeprobe._flags_for(file)
   if not flags then return cb(nil, "no compile_commands.json for this file") end
-  local lines = vim.api.nvim_buf_get_lines(st.srcbuf, 0, -1, false)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local tmp = vim.fn.tempname() .. ".cpp"
   if not pcall(vim.fn.writefile, lines, tmp) then return cb(nil, "could not write temp source") end
   local tempbase = vim.fn.fnamemodify(tmp, ":t")
@@ -151,8 +153,27 @@ local function compile(st, cb)
   if not ok then pcall(os.remove, tmp); cb(nil, "could not run " .. (cc or "clang++")) end
 end
 
+-- reusable: compile the ctx's buffer, isolate the enclosing function, and count its instructions +
+-- detect SIMD — the compiled-reality metrics feeding the [DATA_SIZE]/[SIMD] derived tags. cb({insns,
+-- simd}) | cb(nil). No window; pure metric extraction over the same 1:1 build the explorer uses.
+function M.fn_metrics(ctx, cb)
+  local lo, hi = fn_range(ctx.bufnr, (ctx.line or 1) - 1, ctx.col or 0)
+  compile(ctx.bufnr, function(built, _)
+    if not built then return cb(nil) end
+    local f = M.filter_range(built, lo, hi)
+    local insns, simd = 0, false
+    for _, d in ipairs(f.disp) do
+      if not d:match(":%s*$") then -- labels end in ":"; everything else is an instruction
+        insns = insns + 1
+        if d:match("[yz]mm%d") or d:match("%svp%a") or d:match("%sv%a+p[sd]%s") then simd = true end
+      end
+    end
+    cb({ insns = insns, simd = simd })
+  end)
+end
+
 local function refresh(st)
-  compile(st, function(built, err)
+  compile(st.srcbuf, function(built, err)
     if not (st.asmbuf and vim.api.nvim_buf_is_valid(st.asmbuf)) then return end
     if not built then
       vim.bo[st.asmbuf].modifiable = true

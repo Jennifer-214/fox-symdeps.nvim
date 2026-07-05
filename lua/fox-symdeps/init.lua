@@ -174,6 +174,20 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("FoxSymdepsCockpit", function()
     require("fox-symdeps.cockpit").toggle()
   end, { desc = "fox-symdeps: toggle cockpit mode (auto-dock panel on C++ buffers)" })
+  vim.api.nvim_create_user_command("FoxSymdepsDerived", function()
+    local ctx = require("fox-symdeps.context").under_cursor()
+    if not ctx then return vim.notify("fox-symdeps · put the cursor on a symbol", vim.log.levels.INFO) end
+    vim.notify("fox-symdeps · gathering derived facts…", vim.log.levels.INFO)
+    require("fox-symdeps.facts").derived(ctx, function(f)
+      local lines = require("fox-symdeps.tagadapter").format_derived(f) -- real adapter → the [DERIVED] block
+      if lines and #lines > 0 then return vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO) end
+      vim.notify(("fox-symdeps · %s%s%s · deps: %s · consumers: %s"):format(f.symbol, -- null adapter → raw facts
+        f.data_size and (" · " .. f.data_size .. " instr") or "",
+        f.simd ~= nil and (" · " .. (f.simd and "simd" or "scalar")) or "",
+        #f.dep_chain > 0 and table.concat(f.dep_chain, ", ") or "—",
+        #f.consumers > 0 and table.concat(f.consumers, ", ") or "—"), vim.log.levels.INFO)
+    end)
+  end, { desc = "fox-symdeps: derived facts for the symbol (feeds the [DERIVED] tags; drift-verify later)" })
   vim.api.nvim_create_user_command("FoxSymdepsReloadAll", function()
     -- clear every fox-symdeps.* submodule so the next require re-reads from disk (keymaps require
     -- fresh each press). Unlike :FoxSymdepsReload (lenses only) this picks up core edits (hud/clangd/…)

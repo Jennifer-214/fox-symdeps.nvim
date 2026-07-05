@@ -82,6 +82,19 @@ So the plugin can:
 The comment scheme is the **contract**; the plugin is a **generator + drift-verifier** of its derived
 facts. That's the seam. (Depends on the grammar being codified + a stable derived-tag layout.)
 
+**Seam scaffolded 2026-07-05 (tag-independent, ready to swap):**
+- `facts.lua` — `M.derived(ctx, cb)` produces the fact record `{data_size, simd, dep_chain, consumers}`
+  from the live analysis (fn: callers/callees + `asmexplorer.fn_metrics`; struct: consumers + `compose.uses`).
+  This is done + works standalone.
+- `tagadapter.lua` — the NULL adapter with the interface `parse` / `format_derived` / `verify`. **The
+  whole tag layer swaps in via one call: `tagadapter.install{ parse=…, format_derived=…, verify=… }`** —
+  no downstream changes. Until then it no-ops and callers fall back to raw facts.
+- `:FoxSymdepsDerived` — previews the facts today; auto-upgrades to the `[DERIVED]` tag block the moment
+  a real adapter is installed. A future drift diagnostic routes through `tagadapter.verify(parse(block), derived)`.
+
+So when the grammar is codified: write ONE adapter module (`parse`/`format_derived`/`verify` over the
+codified grammar), `tagadapter.install` it, and the generator + drift-verifier light up.
+
 ## Edge-case / cohesion discipline (headless can't catch it all)
 
 **What IS headless-testable** (and is being tested — unit tests + `nvim -l` e2e probes): pure logic
