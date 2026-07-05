@@ -141,6 +141,27 @@ The fox-health pattern (one `lib*.a` → many surfaces) applied to the analysis:
     inspected symbol through the runtime-provider contract (keyed by symbol; whatever transport backs it) —
     but it never hosts the live dashboard itself.
 
+## Source↔asm explorer (2026-07-05) — SHIPPED
+
+A godbolt inside nvim (`<leader>de`). Compiles the buffer with the **real toolchain** (the compiler +
+flags from `compile_commands.json`, only LTO stripped, + `-g`) so the asm is **1:1** with the shipped
+binary — not an isolated clang. Side-by-side split; cursor on a C++ line highlights + scrolls its
+instructions into view in the asm pane via the `-g` `.loc` map. **No instantiation prompt** — the whole
+buffer compiles, so `Foo<64>` is compiled as used (the awkward `vim.ui.input` box is gone). Data-dependent
+branches glow. The map is built once per compile + cached; cursor-sync is a pure lookup; a save recompiles.
+`asmexplorer.build`/`filter_range` pure-tested (10/0); e2e verified on clang + g++ (both `.file`/`.loc`
+dialects), window + sync + 1:1 codegen. Filters to the enclosing function's line range for focus.
+
+Companion: **`<leader>db` inline data-dependent branch tags** (`branchtag.lua`) — the same real-toolchain
+compile, but instead of a pane it tags the source lines carrying a data-dependent branch with a
+non-destructive `▲` virtual text (byte-check style, never edits code/comments). Refreshes on save.
+
+Underpinned by **asm branch classification** (`asmdiff.classify_branches`): a conditional branch is
+data-dependent when the compare/test feeding it reads memory through a pointer register (field/tick input)
+— the mispredict risk — vs a constant/loop bound; `%rip` constant-pool loads excluded; cmov counted. Also
+surfaced in the asm-diff comparison table. All three share the real-compiler 1:1 path (`sizeprobe._flags_for`
+now returns the compiler).
+
 ## Backlog — 2026-07-05 six-lens agent sweep
 
 Six parallel agents audited the plugin (UX/friction · compiled-reality domain gaps · nvim ecosystem ·

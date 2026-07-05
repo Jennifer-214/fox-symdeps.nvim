@@ -294,6 +294,7 @@ function Hud:_help()
     "  Open    <leader>dd float · <leader>dD panel · <leader>dS browse structs · <leader>du use-lens",
     "          <leader>dr roam · <leader>dw dashboard · <leader>dg straddle diagnostics · <leader>dl inline size lens",
     "          <leader>da lock layout (static_assert) · <leader>dc always-on size chip (winbar)",
+    "          <leader>de source↔asm explorer (side-by-side, 1:1) · <leader>db inline data-dep branch tags",
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
     "  Filter  /   filter the Consumers tree",

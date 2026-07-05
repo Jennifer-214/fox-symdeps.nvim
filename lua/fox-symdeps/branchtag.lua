@@ -16,16 +16,18 @@ M.enabled = false
 -- line the instruction maps to (0 = unknown), tracked from `.loc <mainidx> <line>`. mainidx is the
 -- .file entry whose path matches `tempbase` (the compiled buffer copy), so #included lines are excluded.
 function M.parse(asm, tempbase)
-  local mainidx = 0
+  -- main file DWARF index/indices — g++ names the temp under both index 0 and 1 but keys .loc off 1;
+  -- clang uses one. Collect every index whose .file names the temp (includes have other basenames).
+  local main = {}
   for line in (asm or ""):gmatch("[^\n]+") do
-    local idx, path = line:match('^%s*%.file%s+(%d+)%s+.-"([^"]+)"%s*$')
-    if idx and tempbase and path:find(tempbase, 1, true) then mainidx = tonumber(idx); break end
+    local idx = line:match("^%s*%.file%s+(%d+)%s")
+    if idx and tempbase and line:find(tempbase, 1, true) then main[tonumber(idx)] = true end
   end
   local instrs, srclines, cur = {}, {}, 0
   for line in (asm or ""):gmatch("[^\n]+") do
     local fidx, ln = line:match("^%s*%.loc%s+(%d+)%s+(%d+)")
     if fidx then
-      if tonumber(fidx) == mainidx then cur = tonumber(ln) end
+      if main[tonumber(fidx)] then cur = tonumber(ln) end
     elseif line:match("^%s*%.") then          -- other directive → skip
     elseif line:match("^[%w_%.%$@]+:%s*$") then -- label → skip
     else
@@ -68,14 +70,14 @@ local function refresh(bufnr)
   if not M.enabled then return end
   local file = vim.api.nvim_buf_get_name(bufnr)
   if file == "" then return end
-  local flags, dir = sizeprobe._flags_for(file)
+  local flags, dir, cc = sizeprobe._flags_for(file)
   if not flags then return end
   local src = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local tmp = vim.fn.tempname() .. ".cpp"
   if not pcall(vim.fn.writefile, src, tmp) then return end
   local tempbase = vim.fn.fnamemodify(tmp, ":t")
-  -- real project flags for real codegen; only LTO stripped (else -S emits LLVM IR). -g for .loc.
-  local argv = { "clang++", "-S", "-g", "-o", "-", "-I" .. vim.fn.fnamemodify(file, ":h") }
+  -- REAL compiler + project flags for 1:1 codegen; only LTO stripped (else -S emits LLVM IR). -g for .loc.
+  local argv = { cc or "clang++", "-S", "-g", "-o", "-", "-I" .. vim.fn.fnamemodify(file, ":h") }
   for _, f in ipairs(flags) do
     if not (f:match("^%-flto") or f == "-emit-llvm") then argv[#argv + 1] = f end
   end
