@@ -9,6 +9,7 @@
 local M = {}
 local NS_DATA = vim.api.nvim_create_namespace("fox_symdeps_asmexp_data") -- persistent: data-dep branches
 local NS_CUR = vim.api.nvim_create_namespace("fox_symdeps_asmexp_cur")   -- transient: the synced lines
+local NS_COST = vim.api.nvim_create_namespace("fox_symdeps_asmexp_cost") -- source-line instruction cost
 local sizeprobe = require("fox-symdeps.sizeprobe")
 local asmdiff = require("fox-symdeps.asmdiff")
 
@@ -71,6 +72,17 @@ function M.filter_range(built, lo, hi)
 end
 M._build = M.build
 
+-- pure: instructions compiled per source line → { [srcline] = count }. Labels (end in ":") don't count.
+-- The "this innocent line → 40 instructions" signal — how much asm each C++ line actually generated.
+function M.line_costs(built)
+  local count = {}
+  for i, s in ipairs((built or {}).src or {}) do
+    local d = built.disp[i]
+    if s and s > 0 and d and not d:match(":%s*$") then count[s] = (count[s] or 0) + 1 end
+  end
+  return count
+end
+
 -- the enclosing function's 1-based source line range at the cursor, or nil (via treesitter).
 local function fn_range(bufnr, row0, col0)
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "cpp")
@@ -110,6 +122,22 @@ local function sync(st)
   vim.api.nvim_win_call(st.asmwin, function() vim.cmd("normal! zz") end)
 end
 
+-- annotate the SOURCE lines with how many instructions each compiled to. Outliers (>15) glow — the
+-- "this line is secretly expensive" tell. Reuses the same 1:1 build; no extra compile.
+local function paint_source_cost(st, built)
+  if not (st.srcbuf and vim.api.nvim_buf_is_valid(st.srcbuf)) then return end
+  vim.api.nvim_buf_clear_namespace(st.srcbuf, NS_COST, 0, -1)
+  local n = vim.api.nvim_buf_line_count(st.srcbuf)
+  for s, c in pairs(M.line_costs(built)) do
+    if s <= n then
+      pcall(vim.api.nvim_buf_set_extmark, st.srcbuf, NS_COST, s - 1, 0, {
+        virt_text = { { ("  → %d instr"):format(c), c > 15 and "FoxSymdepsWarn" or "FoxSymdepsBadge" } },
+        virt_text_pos = "eol",
+      })
+    end
+  end
+end
+
 local function render(st, built)
   st.by_src, st.data = {}, {}
   for i, sl in ipairs(built.src) do
@@ -121,6 +149,7 @@ local function render(st, built)
   vim.bo[st.asmbuf].modifiable = false
   vim.api.nvim_buf_clear_namespace(st.asmbuf, NS_DATA, 0, -1)
   paint_data(st)
+  paint_source_cost(st, built)
   sync(st)
 end
 
@@ -189,6 +218,7 @@ function M.close(srcbuf)
   local st = S[srcbuf]
   if not st then return end
   if st.aug then pcall(vim.api.nvim_del_augroup_by_id, st.aug) end
+  if vim.api.nvim_buf_is_valid(srcbuf) then vim.api.nvim_buf_clear_namespace(srcbuf, NS_COST, 0, -1) end
   if st.asmwin and vim.api.nvim_win_is_valid(st.asmwin) then pcall(vim.api.nvim_win_close, st.asmwin, true) end
   S[srcbuf] = nil
 end

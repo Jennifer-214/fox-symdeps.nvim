@@ -53,5 +53,16 @@ ok(fr.data[3] == true, "the in-range data flag re-indexes onto the 3rd surviving
 ok(fr.data[1] == nil and fr.data[2] == nil, "non-data lines carry no flag")
 ok(E.filter_range(built, nil, nil) == built, "nil range → unchanged")
 
+-- line_costs: instructions per source line (labels don't count)
+local costed = {
+  disp = { "g:", "    cmpq $1, (%rdi)", "    jg .L1", "    movl $7, %eax", "  .L1:", "    retq" },
+  src  = { 4,    4,                     4,           5,                 5,        6 },
+}
+local lc = E.line_costs(costed)
+ok(lc[4] == 2, "line 4 → 2 instructions (cmpq + jg; the 'g:' label doesn't count)")
+ok(lc[5] == 1, "line 5 → 1 instruction (movl; the .L1: label doesn't count)")
+ok(lc[6] == 1, "line 6 → 1 instruction (retq)")
+ok(E.line_costs({ disp = {}, src = {} })[1] == nil, "empty → no costs")
+
 io.write(("test_asmexplorer: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)
