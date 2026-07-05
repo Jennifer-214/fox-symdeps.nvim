@@ -95,6 +95,12 @@ function M.refresh_layout(ctx, h)
   end
 end
 
+-- Public query API (the outbound seam other plugins + your statusline ride).
+-- status(): the current symbol's chip string for a lualine/heirline component (synchronous, cached).
+function M.status()
+  return require("fox-symdeps.status").status()
+end
+
 -- open the float HUD on the symbol under the cursor + fire the fetch. Public so
 -- browse/roam can reuse it after landing the cursor on a picked symbol.
 function M.inspect_cursor()
@@ -191,6 +197,9 @@ function M.setup(opts)
   vim.keymap.set("n", "<leader>da", function()
     require("fox-symdeps.assertion").insert()
   end, { desc = "fox-symdeps: lock layout (insert static_assert sizeof/alignof)" })
+  vim.keymap.set("n", "<leader>dc", function()
+    require("fox-symdeps.status").toggle()
+  end, { desc = "fox-symdeps: toggle the always-on size chip (winbar)" })
   vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
   vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
   vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })
