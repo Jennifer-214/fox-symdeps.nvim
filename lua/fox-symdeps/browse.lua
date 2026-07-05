@@ -71,29 +71,4 @@ function M.roam(palette)
   end)
 end
 
--- widest-headers: the first aggregate/dashboard tile — rank every header in the project by how many
--- files #include it (change-blast-radius). Rides vim.ui.select, so you fuzzy-search the ranking in
--- your picker; pick one to open it. The codebase-wide inversion of the per-symbol ⊃ Includers view.
-function M.widest(palette)
-  local buf = vim.api.nvim_buf_get_name(0)
-  local root = (buf ~= "" and vim.fs.root(buf, { ".git", "compile_commands.json" })) or vim.fn.getcwd()
-  vim.notify("fox-symdeps · ranking headers by include-breadth…", vim.log.levels.INFO)
-  vim.schedule(function()
-    local ranked = require("fox-symdeps.aggregate").widest_headers(root, 60)
-    if #ranked == 0 then
-      return vim.notify("fox-symdeps · no in-repo headers included anywhere (is this the project root?)", vim.log.levels.INFO)
-    end
-    vim.ui.select(ranked, {
-      prompt = "fox-symdeps · widest headers (files that #include →):",
-      format_item = function(h)
-        local where = h.path and vim.fn.fnamemodify(h.path, ":."):gsub("/[^/]+$", "") or ""
-        return ("%4d  %-30s %s"):format(h.count, h.header, where)
-      end,
-    }, function(choice)
-      if not choice or not choice.path then return end
-      vim.cmd.edit(vim.fn.fnameescape(choice.path))
-    end)
-  end)
-end
-
 return M

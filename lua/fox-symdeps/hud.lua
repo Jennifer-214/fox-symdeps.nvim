@@ -283,7 +283,7 @@ function Hud:_help()
   local lines = {
     "",
     "  Open    <leader>dd float · <leader>dD panel · <leader>dS browse structs · <leader>du use-lens",
-    "          <leader>dr roam (any symbol) · <leader>dw widest headers · <leader>dg straddle diagnostics",
+    "          <leader>dr roam (any symbol) · <leader>dw codebase dashboard · <leader>dg straddle diagnostics",
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
     "  Filter  /   filter the Consumers tree",

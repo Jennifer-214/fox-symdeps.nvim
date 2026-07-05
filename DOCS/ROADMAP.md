@@ -80,13 +80,15 @@ and it's small enough to revise cheaply if even it needs to.
   *honest breadth* Consumers can't give — clangd references don't follow type aliases (`using Money =
   FixedPoint<…>`), so a type reached only through aliases looks far narrower than it is. `#include` can't
   be aliased away. (`FixedPoint`: Consumers 75-refs-in-header vs Includers **42 files** across 8 dirs.)
-- [x] **widest headers** (`<leader>dw`, first dashboard tile): rank every in-repo header by how many
-  files `#include` it — the change-blast-radius ranking (`FixedPointN.hpp` 42 · `BitmapMacros.hpp` 26 · …).
-  One `#include` scan + tally, system headers excluded, rides `vim.ui.select`. The codebase-wide inversion
-  of the per-symbol `⊃` view.
-- [ ] **aggregate health dashboard** (more tiles): every cache-line straddler, biggest structs by size,
-  project-wide width-literal audit, hot-path branch budget — joining widest-headers under one surface. The
-  marquee "where are my engine's perf/layout risks" view.
+- [x] **codebase dashboard** (`<leader>dw`): a warm, tree-navigable surface (same palette/nav/glyphs as
+  the HUD, so it reads as one tool) holding whole-project tiles that fill async. Shipped tiles:
+  - **⊃ Widest headers** — every in-repo header ranked by `#include` count = change-blast-radius
+    (`FixedPointN.hpp` 42 · `BitmapMacros.hpp` 26 · …). One grep + tally, system headers excluded.
+  - **▦ Biggest structs** — struct census straight from `clang -fdump-record-layouts` (reliable sizes,
+    no clangd round-trip). Sorted by footprint, colored by cache-residency (green fits a line · wheat
+    spills the residency band · plain = large aggregate). `<CR>` grep-resolves the def and jumps.
+- [ ] **more dashboard tiles**: every cache-line straddler (needs per-field span from the same layout
+  dump), project-wide width-literal audit, hot-path branch budget. Each slots into the tile array.
 - [ ] **graph navigation**: fluid walk of consumers ↔ includers ↔ callers ↔ uses ↔ contains with
   breadcrumbs + pin-and-compare (the panel's history is the seed).
 
