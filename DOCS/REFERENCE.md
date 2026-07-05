@@ -111,7 +111,15 @@ as complexity grows (possibly in a dedicated session).
 
 ## Resume checklist (fresh session)
 
-1. Read `DECISIONS.md` + `ROADMAP.md` + `TAG-INTEGRATION.md`.
+0. **Git state:** the 2026-07-05 session's work (38 commits) is on branch **`feat/hud-robustness`**
+   (ahead of `main`, unmerged). `git checkout feat/hud-robustness` first. If it's not on the remote yet,
+   the work is local-only — the plugin is gitignored by the workspace, so its own remote is its only
+   off-machine backup; push the branch.
+1. Read `DECISIONS.md` + `ROADMAP.md` + `TAG-INTEGRATION.md` + `EDGE-CASES.md`.
 2. `:FoxSymdepsReloadAll` (or restart nvim) so core edits are live.
 3. Check the parallel-session status of the tag grammar before touching anything tag-related.
 4. Pick from the queue above; stay tag-independent until the grammar is codified.
+
+> **Memory scope note:** the auto-memory pointer to this plugin lives in the *Linux_Theme* project scope,
+> not the trader/workspace scope — so a session opened from the workspace/engine won't auto-surface it.
+> These `DOCS/` (in the repo, always present) are the reliable, location-independent entry — start here.
