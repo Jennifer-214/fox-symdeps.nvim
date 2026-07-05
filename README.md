@@ -58,12 +58,12 @@ lazy.nvim:
 }
 ```
 
-Wiring it into a theme that already has a palette (pass your own tokens — local checkout,
-or drop `dir` for the published remote):
+Wiring it into a theme that already has a palette (pass your own tokens; private local plugin,
+so point `dir` at the checkout):
 
 ```lua
 {
-  dir = vim.fn.expand("~/code/fox-symdeps.nvim"),
+  dir = vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim"),
   name = "fox-symdeps",
   ft = { "c", "cpp" },
   opts = { palette = { header = P.peach, title = P.blush, border = P.peach,
