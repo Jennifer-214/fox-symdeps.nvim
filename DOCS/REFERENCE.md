@@ -70,6 +70,12 @@ as complexity grows (possibly in a dedicated session).
 2. **Manual-editing features** — codebase-wide **rename-preview** (LSP rename + the consumer tree as the
    preview), **edit-all-consumers** (references → quickfix → scripted substitution), **multi-cursor** (a
    small dedicated plugin). All ride the existing reference graph. Tag-independent.
+2a. **Absorb-and-customize** — replace generic plugins with cohesive in-house equivalents where it tightens
+   the toolchain and intertwines with the cockpit's analysis. Decided so far: `neotest` → a custom test
+   runner (drives the trader's own suite). `vimtex` dropped (no LaTeX). Candidates to weigh: an
+   analysis-aware symbol outline (vs `aerial`), the offenders/straddlers as the diagnostics source (vs a
+   generic Trouble list). **The operator surfaces which plugins feel redundant/replaceable; the agent's job
+   is to articulate the custom version + build it** — the ideas don't need to arrive pre-specified.
 3. **Snappiness / polish** — the Uses/Includers/dashboard `rg` calls run **sync** and hitch the HUD on
    open → make them async (biggest felt-jank fix). Also: grep **loud-failure** (rg-absent currently reads
    as a calm "nothing here"). Tag-independent.
@@ -85,7 +91,9 @@ as complexity grows (possibly in a dedicated session).
 ## Implementation queue (by readiness)
 
 - **Ready now (tag-independent):** edit-all-consumers · rename-preview · async-greps · grep loud-failure ·
-  the cohesion/usability audit · more dashboard tiles (project-wide width-lits, hot-path budget).
+  the cohesion/usability audit · more dashboard tiles (project-wide width-lits, hot-path budget) ·
+  **custom test runner** (replaces `neotest` — drives the trader's OWN suite: `run_all_tests.sh` / the
+  conformance gate / a gtest binary, parse the output, surface pass-fail in the cockpit + inline signs).
 - **Needs the tag grammar first:** the tags lens (fold/color/jump by category) · `[DESIGN_SPEC]_`
   doc-block linking · the `[DERIVED]` generator + drift-verifier (write the `tagadapter` + `install`).
 - **Bigger bets:** the conformance-gate unify · `fox-bench` (measured cycles beside static asm) ·
