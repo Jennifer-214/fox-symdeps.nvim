@@ -43,6 +43,8 @@ end
 
 function M.close() if P.hud then P.hud:close() end end
 
+function M.is_open() return P.hud ~= nil and not P.hud.closed end
+
 function M.switch(delta)
   if not (P.hud and not P.hud.closed) or #P.hist == 0 then return end
   P.idx = M._wrap(P.idx, delta, #P.hist)

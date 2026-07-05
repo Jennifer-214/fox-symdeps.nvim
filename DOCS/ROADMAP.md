@@ -170,8 +170,10 @@ session transcript.
 - [ ] **[converged] Graph-walk drill-in** — a HUD key that re-inspects the symbol *named by the selected row*
   (a Uses type / caller / includer) with a breadcrumb stack + back, instead of jump→reopen. Builds on
   `panel` history + `hud:reset`. The roadmap's "graph navigation" marquee. *(UX #3, Lenses #1.)*
-- [ ] **Cockpit auto-panel** — ft-triggered auto-dock of `panel` on C++ buffers (min-width gated), so the
-  cursor-following analysis is simply *there*. Makes the co-programming loop the default.
+- [x] **Cockpit auto-panel** (`setup{auto_panel=true}` / `:FoxSymdepsCockpit`). Auto-docks the
+  cursor-following `panel` on C++ buffers so the analysis is simply *there* from the start — the
+  co-programming loop as the default, no key to remember. Opt-in, min-width (120 col) gated so it never
+  crowds a narrow/portrait editor. `cockpit.lua` + `panel.is_open()`.
 - [ ] **Sticky / default-open sections** — pairs with the collapse-by-default just shipped: an
   `opts.default_open` per kind (struct → Fields/Layout, fn → Calls) + module-level fold persistence, so the
   sections you always read start open.

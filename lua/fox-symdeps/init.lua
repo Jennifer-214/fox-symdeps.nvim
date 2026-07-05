@@ -9,6 +9,7 @@ local defaults = {
   palette = {},
   pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
   doc_dirs = {},  -- extra dirs the `n` notes lens greps for symbol mentions (design specs / a workspace repo)
+  auto_panel = false, -- cockpit mode: auto-dock the tracking panel on C++ buffers (min-width gated)
 }
 
 -- callees {name,file,line} → a one-role "Calls" tree for the HUD (file-grouped, jumpable).
@@ -170,6 +171,9 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("FoxSymdepsAsmFlags", function()
     require("fox-symdeps.asmflags").choose()
   end, { desc = "fox-symdeps: pick / add asm flag-sets (auto-saved)" })
+  vim.api.nvim_create_user_command("FoxSymdepsCockpit", function()
+    require("fox-symdeps.cockpit").toggle()
+  end, { desc = "fox-symdeps: toggle cockpit mode (auto-dock panel on C++ buffers)" })
   -- re-apply on colorscheme change so a theme swap re-themes the HUD
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),
@@ -211,6 +215,7 @@ function M.setup(opts)
   if ok and wk.add then
     pcall(wk.add, { { "<leader>d", group = "symdeps" } })
   end
+  if M.config.auto_panel then require("fox-symdeps.cockpit").toggle(true) end
 end
 
 return M
