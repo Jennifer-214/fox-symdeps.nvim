@@ -162,12 +162,21 @@ data-dependent when the compare/test feeding it reads memory through a pointer r
 surfaced in the asm-diff comparison table. All three share the real-compiler 1:1 path (`sizeprobe._flags_for`
 now returns the compiler).
 
+**Also shipped (post-sweep, tag-independent):**
+- **Per-line instruction cost** in the explorer — each source line in the function gets `→ N instr` (outliers
+  >15 glow); reuses the same 1:1 build (`asmexplorer.line_costs`, `paint_source_cost`). No extra compile.
+- **The tag-fact SEAM** (`facts.lua` + null `tagadapter.lua`) — the plugin's compiled-reality analysis
+  normalized into `{data_size, simd, dep_chain, consumers}` (`facts.derived`; `asmexplorer.fn_metrics` for the
+  fn instruction count/SIMD). `:FoxSymdepsDerived` previews it now; the `[TAG]_` layer swaps in via one
+  `tagadapter.install{}` call. Tag-INDEPENDENT — see `TAG-INTEGRATION.md`. This is the read side of the deferred
+  tags lens; the generate/drift-verify side lands with the grammar.
+
 ## Backlog — 2026-07-05 six-lens agent sweep
 
 Six parallel agents audited the plugin (UX/friction · compiled-reality domain gaps · nvim ecosystem ·
 half-built/missing lenses · polish/correctness · beyond-the-plugin toolchain). Ranked build order below;
-items multiple lenses independently surfaced are marked **[converged]**. Full per-lens output is in the
-session transcript.
+items multiple lenses independently surfaced are marked **[converged]**. This is the DURABLE capture of
+every finding worth keeping — it does not depend on the (ephemeral) transcript.
 
 ### Tier 0 — trust fixes (do first; small; the tool is confidently *wrong* here)
 
@@ -246,16 +255,21 @@ session transcript.
 - [ ] **Anonymous-union fields** dropped from the field map (`layout.parse_field` needs an `Offset:`) → byte map
   paints live union bytes as padding. Detect via documentSymbol children or annotate "anon — offset unknown."
 
-### Also captured (lower tiers, full list in transcript)
+### Also captured (lower tiers — the full remaining list, self-contained)
 
 Domain: atomic/seqlock memory-order lens · llvm-mca µop/port-pressure · vectorization verification
 (`-Rpass`) · float-in-accounting detector · `has_unique_object_representations` byte-safety probe · `fox-bench`
 PMU (the gate's own deferred layer-2). Lenses: alias-aware consumers · dead/write-only-field lens · who-allocates
 lens · hot-path-budget dashboard tile · enum/bitfield packing lens. Integration: `gs{motion}` operator + picker
-extension w/ layout preview · neo-tree risk badging. UX: recent-symbols switcher · pin-and-compare layouts.
-Beyond: field-offset straddle fingerprint in the gate · AI-explain over facts · `live_facts` contract + null
-adapter · collapse the manifests to one `analysis-manifest.json` SSoT. Polish: header-basename collision inflates
-Includers/widest counts · dashboard census fails on the incidental buffer · byte-map letters wrap at 26 fields.
+extension w/ layout preview · neo-tree risk badging · **LSP hover augment** (append the cache-line verdict to
+clangd's `K`) · **Telescope extension** (`:Telescope fox-symdeps roam|offenders|…`). UX: recent-symbols switcher ·
+pin-and-compare layouts · **unify inspect-when-panel-open** (`<leader>dd` re-points an open panel instead of
+stacking a float). Beyond: field-offset straddle fingerprint in the gate · AI-explain over facts · `live_facts`
+runtime contract + null adapter (distinct from the tag-fact seam — this one fuses live per-core telemetry) ·
+**surface the gate's verdict as an in-editor `vim.diagnostic`** (CI fact → as-you-type signal) · collapse the
+manifests to one `analysis-manifest.json` SSoT. Polish: header-basename collision inflates Includers/widest
+counts · dashboard census fails on the incidental buffer · byte-map letters wrap at 26 fields · `test_widthlit`
+only covered size 16 (now has 4/8) · `test_asmdiff` didn't cover the block-name matcher (now does).
 
 **Guardrail:** the plugin exists to serve *building the engine*. Keep it in that ratio — don't let the cockpit
 become the mission.
