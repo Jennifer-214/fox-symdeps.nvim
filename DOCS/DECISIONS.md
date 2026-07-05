@@ -46,13 +46,14 @@ This also begins to heal the divergence with the engine's own g++/objdump confor
 
 ## The `[TAG]_` comment scheme (deferred, operator-owned)
 
-Grep-able prefix-category tags (`[TAG]_LAT_EXEMPT`, `[TAG]_HOT-PATH`, `[DESIGN_SPEC]_<name>`, `[DATE]_`,
-`[FUNCTION]_`, `[VERSION]_`) as terse machine directives; block-header anatomy carries the WHY prose.
-**Principle: additive + explicit** — a directive must be an explicit tag; prose is never a directive. So
-old comments and the legacy manifest keep working (backwards-compat is free), and migration is
-opportunistic. The plugin side (a tags lens that folds/colors by category, `[DESIGN_SPEC]_` → doc-block
-linking) is **parked until the operator codifies the grammar in the workspace**. Flat, repeatable tokens
-— not nested brackets — so `rg '\[TAG\]_X'` works per token.
+Grep-able prefix-category tags as terse machine directives; a grouped block-header anatomy
+(`[FUNCTION]`/`[META]`/`[DOC]`/`[DERIVED]`/`[REFS]`) carries the WHY prose. **Principle: additive +
+explicit** — a directive must be an explicit tag; prose is never a directive. So old comments and the
+legacy manifest keep working (backwards-compat is free), and migration is opportunistic. **The plugin's
+role is TWO-WAY: read (tags lens, doc-block linking) AND generate + drift-verify the `[DERIVED]` section
+(`[DATA_SIZE]`/`[SIMD]`/`[DEP_CHAIN]`/`[CONSUMERS]` = exactly what the plugin computes).** Parked until
+the operator codifies the grammar in the workspace. **→ see `DOCS/TAG-INTEGRATION.md`** for the full
+design (the current format is evolving — was flat tokens, now grouped with nested `[[v1] [v2]]` lists).
 
 ## Trust discipline (why findings are conservative)
 
