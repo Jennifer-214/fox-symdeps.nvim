@@ -63,12 +63,12 @@ lens.define{
           else
             why = "couldn't resolve fields — put the cursor on the struct's DEFINITION (same limit as Layout/Fields)"
           end
-          vim.notify("fox-symdeps · false-sharing: " .. why, vim.log.levels.WARN)
+          hud:set_message("false-sharing (s): " .. why, "warn") -- persists in the HUD, readable
         elseif #res.risks == 0 then
-          vim.notify("fox-symdeps · false-sharing: none on shared lines ✓", vim.log.levels.INFO)
+          hud:set_message("false-sharing (s): none on shared lines ✓", "info")
         else
           hud:set_section("false_sharing", LABEL .. "  (advisory — sizeof is fingerprinted)", build_tree(res), "ok")
-          vim.notify(("fox-symdeps · false-sharing: %d risk(s) — advisory only"):format(#res.risks), vim.log.levels.WARN)
+          hud:set_message(("false-sharing (s): %d risk(s) — advisory only"):format(#res.risks), "warn")
         end
       end)
     end,

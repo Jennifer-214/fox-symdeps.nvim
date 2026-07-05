@@ -37,14 +37,14 @@ lens.define{
             or (hud.layout and hud.layout.data and hud.layout.data.is_template)
             and "templated struct — put the cursor on a concrete Foo<N> use"
             or "couldn't resolve fields — put the cursor on the struct's DEFINITION"
-          return vim.notify("fox-symdeps · access density: " .. why, vim.log.levels.WARN)
+          return hud:set_message("access density (t): " .. why, "warn")
         end
         local tree = build_tree(res)
         if #tree == 0 then
-          return vim.notify("fox-symdeps · access density: no functions touch this struct's fields", vim.log.levels.INFO)
+          return hud:set_message("access density (t): no functions touch this struct's fields", "info")
         end
         hud:set_section("access_density", LABEL .. "  (distinct 64B lines per function · advisory)", tree, "ok")
-        vim.notify(("fox-symdeps · access density: %d function(s) — most lines first"):format(#tree), vim.log.levels.INFO)
+        hud:set_message(("access density (t): %d function(s) — most lines first"):format(#tree), "info")
       end)
     end,
   },

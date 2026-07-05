@@ -84,10 +84,11 @@ end
 M._is_flag_setter = is_flag_setter
 M._derefs_memory = derefs_memory
 
--- pure: classify a function's conditional branches → { data, indep, cmov, total }. `data` = the
--- data-dependent (mispredict-risk) count; `cmov` = branchless conditional moves emitted.
+-- pure: classify a function's conditional branches → { data, indep, cmov, total, details }. `data` =
+-- the data-dependent (mispredict-risk) count; `cmov` = branchless conditional moves emitted. `details`
+-- = { {idx, data}, ... } per conditional branch (idx into `lines`) so callers can map back to source.
 function M.classify_branches(lines)
-  local data, indep, cmov = 0, 0, 0
+  local data, indep, cmov, details = 0, 0, 0, {}
   for i, l in ipairs(lines or {}) do
     local op = l:match("^(%S+)") or ""
     if op:match("^cmov") then cmov = cmov + 1 end
@@ -119,9 +120,10 @@ function M.classify_branches(lines)
         end
       end
       if dd then data = data + 1 else indep = indep + 1 end
+      details[#details + 1] = { idx = i, data = dd }
     end
   end
-  return { data = data, indep = indep, cmov = cmov, total = data + indep }
+  return { data = data, indep = indep, cmov = cmov, total = data + indep, details = details }
 end
 
 -- pure: metrics for a function's instruction lines.

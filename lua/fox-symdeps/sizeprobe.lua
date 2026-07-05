@@ -24,7 +24,9 @@ local function filter_flags(args, entry_file)
 end
 
 -- usable compiler flags (drop the compiler, inputs, -c, -o X) from compile_commands.json found
--- upward from `file`'s dir. → flags(list), directory(string) | nil
+-- upward from `file`'s dir. → flags(list), directory(string), compiler(string, args[0]) | nil.
+-- The compiler (3rd value) lets asm tooling compile with the REAL toolchain (g++ vs clang) for a
+-- 1:1 match with the shipped binary, not an isolated clang that diverges in instruction selection.
 local function flags_for(file)
   local dir = vim.fn.fnamemodify(file, ":h")
   local cc = vim.fs.find("compile_commands.json", { upward = true, path = dir })[1]
@@ -45,7 +47,7 @@ local function flags_for(file)
     args = {}
     for tok in (entry.command or ""):gmatch("%S+") do args[#args + 1] = tok end
   end
-  return filter_flags(args, entry.file), entry.directory
+  return filter_flags(args, entry.file), entry.directory, args[1]
 end
 
 -- compute { size, align } for `type_name` (e.g. "FPN_Binary<64>") as seen from `bufnr`. cb(tbl|nil).

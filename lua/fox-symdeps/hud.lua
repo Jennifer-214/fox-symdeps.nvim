@@ -140,6 +140,14 @@ function Hud:set_includers(groups, total)
   self:render()
 end
 
+-- A persistent status/error line shown in the HUD (not a transient notify that flashes by before
+-- you can read it). level = "error" | "warn" | "info". Cleared on re-inspect. Lens actions route
+-- their failure reasons here so "put the cursor on the definition" stays on screen.
+function Hud:set_message(text, level)
+  self.message = text and { text = text, level = level or "info" } or nil
+  self:render()
+end
+
 -- Upsert a provider-contributed section (by key, so a provider can update its own section).
 -- tree: a role-tree to render · {} = show only when non-empty (calm) · nil = header-only info line.
 function Hud:set_section(key, label, tree, state)
@@ -185,6 +193,7 @@ function Hud:reset(ctx)
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
   self.uses = nil -- upstream deps; cleared on struct switch, refilled by set_uses
   self.includers = nil -- files that #include the header; cleared on switch, refilled by set_includers
+  self.message = nil -- persistent status/error line; cleared on re-track
   self.sel = 1
   self.prev_size = nil -- W20: don't carry a size delta across a struct switch
   self:render() -- panel winbar (tab bar) is re-set by panel.lua after reset
@@ -369,6 +378,9 @@ function Hud:_layout_lines()
   local d = self.layout
   if d.state == "loading" then return { SPIN[self.spin] .. " sizing…" } end
   if d.state == "no_client" then return { "clangd not attached" } end
+  if d.state == "ok" and d.data and d.data.is_function then
+    return { "function — a: asm/branches · callers, calls & trace below" }
+  end
   if d.state == "ok" and d.data and d.data.is_template then
     return { "template — put cursor on a concrete Foo<N> use for its size" }
   end
@@ -501,6 +513,15 @@ function Hud:render()
   add(" ◆ Layout", "FoxSymdepsHeader")
   for _, l in ipairs(self:_layout_lines()) do add("   " .. l, "FoxSymdepsBadge") end
   add("")
+
+  -- persistent status/error line (lens failures land here so they don't flash past unread)
+  if self.message then
+    local m = self.message
+    local hl = (m.level == "error" and "FoxSymdepsAlarm")
+      or (m.level == "warn" and "FoxSymdepsWarn") or "FoxSymdepsOk"
+    add(" " .. (m.level == "info" and "ℹ " or "⚠ ") .. m.text, hl)
+    add("")
+  end
 
   -- guardrail info-lines (◈ hot-path / ▣ size-budget) — the highest-signal "this is budgeted"
   -- context; lifted to a priority band right under Layout so it's never buried below Consumers.

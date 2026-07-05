@@ -69,6 +69,11 @@ function M.layout(ctx, cb)
   if not c then
     return cb(nil, "no_client")
   end
+  -- functions have no byte layout — never run a sizeof probe on one (it errors "invalid application
+  -- of sizeof to a function", which now surfaces loudly). The HUD shows a function-appropriate line.
+  if ctx.kind == "function" then
+    return cb({ is_function = true }, "ok")
+  end
   c:request("textDocument/hover", pos_params(ctx), function(err, result)
     if err or not (result and result.contents) then
       return cb(nil, "empty")
