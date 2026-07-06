@@ -34,6 +34,15 @@ eq(spec_of("### struct `T<8>`"), "T<8>", "simple spec")
 eq(spec_of("### struct `Plain`\nSize: 16 bytes"), nil, "plain struct → no spec (no probe)")
 eq(spec_of("### struct `T`\ntemplate <int N> struct T {}"), nil, "generic template def → no spec")
 eq(spec_of(nil), nil, "nil md → nil")
+-- injected-class-name of an un-instantiated primary template: the "args" are the template's OWN
+-- parameter names → NOT probe-able (a sizeof probe hits "undeclared identifier RADIX"). Must be
+-- nil so the HUD degrades to is_template. Regression for the FixedPoint<RADIX,FRAC> probe error.
+eq(spec_of("### struct `FixedPoint<RADIX, FRAC>`\ntemplate <int RADIX, int FRAC> struct FixedPoint"),
+  nil, "injected-class-name (param args) → no spec")
+eq(spec_of("### struct `FPN_Binary<F>`\ntemplate <unsigned F> struct FPN_Binary"),
+  nil, "single template param F → no spec")
+eq(spec_of("### struct `FixedPoint<10, 8>`\ntemplate <int RADIX, int FRAC> struct FixedPoint"),
+  "FixedPoint<10, 8>", "concrete args survive even with the template clause present")
 
 io.write(("test_sizeprobe: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

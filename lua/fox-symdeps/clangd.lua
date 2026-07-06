@@ -24,9 +24,34 @@ local function parse_layout(md)
   }
 end
 
+-- template parameter NAMES from a hover's `template <...>` clause — the last identifier of each
+-- comma-separated parameter: "template <int RADIX, int FRAC>" → { RADIX=true, FRAC=true }. Lets
+-- spec_of tell an un-instantiated injected-class-name (`Foo<RADIX,FRAC>`) from a concrete one.
+local function tparam_names(md)
+  local names = {}
+  local clause = md and md:match("template%s*<(.-)>")
+  if not clause then return names end
+  for seg in (clause .. ","):gmatch("(.-),") do
+    local nm = seg:match("([%a_][%w_]*)%s*$") -- the param name is the segment's last identifier
+    if nm then names[nm] = true end
+  end
+  return names
+end
+
 -- the concrete template spec named in a hover ("struct `Foo<64>`") → "Foo<64>", else nil.
+-- An UN-instantiated primary template renders its injected-class-name with its OWN parameter
+-- names (`FixedPoint<RADIX,FRAC>`, `FPN_Binary<F>`) — NOT probe-able: those identifiers exist
+-- only inside the template, so a sizeof probe hits "use of undeclared identifier RADIX". Reject
+-- such a pseudo-spec (any arg is a template parameter) → the caller degrades to is_template. A
+-- real instantiation (`Foo<64>`, `FixedPoint<10,8>`) has literal / concrete args and survives.
 local function spec_of(md)
-  return md and md:match("([%w_:]+%b<>)") or nil
+  local spec = md and md:match("([%w_:]+%b<>)")
+  if not spec then return nil end
+  local params = tparam_names(md)
+  for tok in spec:match("%b<>"):gmatch("[%a_][%w_]*") do
+    if params[tok] then return nil end -- an arg names a template parameter → un-instantiated
+  end
+  return spec
 end
 
 -- the enclosing namespace clangd notes in a hover ("// In namespace tt") → "tt", else nil.
