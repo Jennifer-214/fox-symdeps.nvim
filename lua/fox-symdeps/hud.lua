@@ -263,6 +263,7 @@ function Hud:_window()
   end)
   map("w", function() self:_width_lits() end)
   map("a", function() self:_asm() end)
+  map("m", function() self:_menu() end)
   map("/", function() self:_filter() end)
   map("?", function() self:_help() end)
   for _, k in ipairs({ "i", "o", "x", "dd", "p" }) do
@@ -703,7 +704,7 @@ function Hud:render()
     local parts = {}
     for _, h in ipairs(self.action_hints or {}) do parts[#parts + 1] = h.key .. " " .. h.desc end
     if self.ctx.kind == "function" then parts[#parts + 1] = "a asm" else parts[#parts + 1] = "w width-lits" end
-    parts[#parts + 1] = "r refresh"; parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
+    parts[#parts + 1] = "m menu"; parts[#parts + 1] = "r refresh"; parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"
     local w = (self.win and vim.api.nvim_win_is_valid(self.win)) and vim.api.nvim_win_get_width(self.win) or 72
     add("")
     local line = ""
@@ -840,6 +841,29 @@ end
 
 -- a: asm flag-diff for a FUNCTION under cursor — compile under two flag-sets, show insns/branches/
 -- vector side by side (W15). Flag-sets come from asmflags (built-in defaults + your saved picks).
+-- `m` action menu: the tag [TYPE]-filtered ops for the TRACKED symbol. Each op runs against self.ctx
+-- (restore the source window+cursor first, since focus is in the HUD), via the keyboard-first menu float.
+function Hud:_menu()
+  local ctx = self.ctx
+  if not ctx then return end
+  local acts = require("fox-symdeps.actions").for_type((ctx.kind or ""):lower())
+  local wrapped = {}
+  for _, a in ipairs(acts) do
+    wrapped[#wrapped + 1] = { label = a.label, run = function()
+      local w = vim.fn.bufwinid(ctx.bufnr)
+      if w ~= -1 then
+        pcall(vim.api.nvim_set_current_win, w)
+        pcall(vim.api.nvim_win_set_cursor, w, { ctx.line, ctx.col })
+      end
+      a.run()
+    end }
+  end
+  require("fox-symdeps.menu").open(wrapped, {
+    title = ("%s %s"):format((ctx.kind or "unit"):upper(), ctx.symbol),
+    palette = self.palette,
+  })
+end
+
 function Hud:_asm()
   if self.ctx.kind ~= "function" then
     return vim.notify("fox-symdeps · asm-diff is for functions (put the cursor on a function)", vim.log.levels.INFO)

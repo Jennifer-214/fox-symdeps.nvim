@@ -174,11 +174,20 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("FoxSymdepsCockpit", function()
     require("fox-symdeps.cockpit").toggle()
   end, { desc = "fox-symdeps: toggle cockpit mode (auto-dock panel on C++ buffers)" })
-  vim.api.nvim_create_user_command("FoxSymdepsDerived", function()
-    local ctx = require("fox-symdeps.context").under_cursor()
-    if not ctx then return vim.notify("fox-symdeps · put the cursor on a symbol", vim.log.levels.INFO) end
-    vim.notify("fox-symdeps · gathering derived facts…", vim.log.levels.INFO)
+  vim.api.nvim_create_user_command("FoxSymdepsDerived", function(cmdopts)
+    local ctx = require("fox-symdeps.tagcontext").resolve() -- cursor ANYWHERE in a tagged unit (or on the symbol)
+    if not ctx then return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO) end
+    local write = cmdopts.bang -- `:FoxSymdepsDerived!` GENERATES the block into the source
+    local buf, row0 = vim.api.nvim_get_current_buf(), vim.api.nvim_win_get_cursor(0)[1] - 1
+    vim.notify(write and "fox-symdeps · writing derived facts…" or "fox-symdeps · gathering derived facts…", vim.log.levels.INFO)
     require("fox-symdeps.facts").derived(ctx, function(f)
+      if write then -- GENERATOR: write the STABLE facts ([UPSTREAM]/[CONSUMERS]) into the [DERIVED] block
+        local n = require("fox-symdeps.tagwriter").write(buf, row0, f)
+        if n == nil then return vim.notify("fox-symdeps · no [DERIVED] block below the cursor's unit — convert it first", vim.log.levels.WARN) end
+        if n == 0 then return vim.notify("fox-symdeps · no stable facts to write (deps/consumers empty)", vim.log.levels.INFO) end
+        pcall(function() vim.api.nvim_buf_call(buf, function() vim.cmd("silent keepjumps write") end) end) -- persist: disk == buffer (safe — .clang-format is DisableFormat)
+        return vim.notify(("fox-symdeps · wrote %d [DERIVED] line(s) for %s + saved (instr/simd stay live-preview)"):format(n, ctx.symbol), vim.log.levels.INFO)
+      end
       local lines = require("fox-symdeps.tagadapter").format_derived(f) -- real adapter → the [DERIVED] block
       if lines and #lines > 0 then return vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO) end
       vim.notify(("fox-symdeps · %s%s%s · deps: %s · consumers: %s"):format(f.symbol, -- null adapter → raw facts
@@ -187,7 +196,17 @@ function M.setup(opts)
         #f.dep_chain > 0 and table.concat(f.dep_chain, ", ") or "—",
         #f.consumers > 0 and table.concat(f.consumers, ", ") or "—"), vim.log.levels.INFO)
     end)
-  end, { desc = "fox-symdeps: derived facts for the symbol (feeds the [DERIVED] tags; drift-verify later)" })
+  end, { bang = true, desc = "fox-symdeps: derived facts (! writes the stable [DERIVED] block in place)" })
+  -- Context action menu — the tag [TYPE] under the cursor filters which ops are offered (D-328).
+  vim.api.nvim_create_user_command("FoxSymdepsMenu", function()
+    local buf = vim.api.nvim_get_current_buf()
+    local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, vim.api.nvim_win_get_cursor(0)[1] - 1)
+    local acts = require("fox-symdeps.actions").for_type(blk and blk.type:lower() or "")
+    require("fox-symdeps.menu").open(acts, {
+      title = blk and ("%s %s"):format(blk.type, blk.name) or "fox-symdeps",
+      palette = M.config.palette,
+    })
+  end, { desc = "fox-symdeps: context action menu (ops filtered by the tag [TYPE])" })
   vim.api.nvim_create_user_command("FoxSymdepsReloadAll", function()
     -- clear every fox-symdeps.* submodule so the next require re-reads from disk (keymaps require
     -- fresh each press). Unlike :FoxSymdepsReload (lenses only) this picks up core edits (hud/clangd/…)
@@ -236,6 +255,7 @@ function M.setup(opts)
     require("fox-symdeps.branchtag").toggle()
   end, { desc = "fox-symdeps: inline data-dependent branch tags (▲, non-destructive)" })
   vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
+  vim.keymap.set("n", "<leader>dm", function() vim.cmd("FoxSymdepsMenu") end, { desc = "fox-symdeps: action menu (context-filtered by tag [TYPE])" })
   vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
   vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })
   -- panel tab flip from ANYWHERE (the panel's own H/L are buffer-local + collide with bufferline;
