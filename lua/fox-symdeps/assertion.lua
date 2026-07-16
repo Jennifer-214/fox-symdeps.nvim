@@ -60,10 +60,15 @@ function M.insert()
       return vim.notify("fox-symdeps · " .. msg, vim.log.levels.WARN)
     end
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
-    local line = M.line(ctx.symbol, data.size, data.align, indent)
+    -- a probed layout is for an exact instantiation (`ExecutionCore<64>`, possibly substituted
+    -- from a dependent `<F>` spelling via template_args) — the assert must name THAT spelling,
+    -- not the bare template, or the inserted line won't compile. data.spec carries it.
+    local target = data.spec or ctx.symbol
+    local line = M.line(target, data.size, data.align, indent)
     vim.api.nvim_buf_set_lines(bufnr, at, at, false, { line })
-    vim.notify(("fox-symdeps · locked %s = %d B%s → static_assert inserted (u to undo)"):format(
-      ctx.symbol, data.size, data.align and (" · align " .. data.align) or ""), vim.log.levels.INFO)
+    vim.notify(("fox-symdeps · locked %s = %d B%s%s → static_assert inserted (u to undo)"):format(
+      target, data.size, data.align and (" · align " .. data.align) or "",
+      data.computed_for and (" · @ " .. data.computed_for) or ""), vim.log.levels.INFO)
   end)
 end
 

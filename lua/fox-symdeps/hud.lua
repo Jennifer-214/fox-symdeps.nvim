@@ -384,6 +384,11 @@ function Hud:_layout_lines()
     return { "function — a: asm/branches · callers, calls & trace below" }
   end
   if d.state == "ok" and d.data and d.data.is_template then
+    local m = d.data.missing_args
+    if m and #m > 0 then -- dependent param with no canonical mapping → name the config knob
+      return { ("template on <%s> — set template_args.%s in setup() for its canonical size"):format(
+        table.concat(m, ", "), m[1]) }
+    end
     return { "template — put cursor on a concrete Foo<N> use for its size" }
   end
   if d.state == "probe_error" then
@@ -395,7 +400,8 @@ function Hud:_layout_lines()
   end
   local sz, al = d.data.size, d.data.align or 0
   local out = { ("size %d B · align %d%s%s"):format(sz, al,
-    d.data.computed and "  (sizeof probe)" or "", size_delta(self.prev_size, sz)) }
+    d.data.computed and (d.data.computed_for and ("  (sizeof probe @ " .. d.data.computed_for .. ")")
+      or "  (sizeof probe)") or "", size_delta(self.prev_size, sz)) }
   if sz <= 64 then
     local reg = sz <= 16 and "XMM 128b" or (sz <= 32 and "YMM 256b" or "ZMM 512b")
     out[#out + 1] = ("fits 1 cache line · %d B slack · %d/line · → %s"):format(64 - sz, math.floor(64 / sz), reg)

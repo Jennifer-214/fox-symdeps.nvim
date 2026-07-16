@@ -38,20 +38,59 @@ local function tparam_names(md)
   return names
 end
 
--- the concrete template spec named in a hover ("struct `Foo<64>`") → "Foo<64>", else nil.
+-- the template spec named in a hover ("struct `Foo<64>`") → "Foo<64>", param_args — else nil.
 -- An UN-instantiated primary template renders its injected-class-name with its OWN parameter
--- names (`FixedPoint<RADIX,FRAC>`, `FPN_Binary<F>`) — NOT probe-able: those identifiers exist
--- only inside the template, so a sizeof probe hits "use of undeclared identifier RADIX". Reject
--- such a pseudo-spec (any arg is a template parameter) → the caller degrades to is_template. A
--- real instantiation (`Foo<64>`, `FixedPoint<10,8>`) has literal / concrete args and survives.
+-- names (`FixedPoint<RADIX,FRAC>`, `FPN_Binary<F>`) — NOT probe-able as-is: those identifiers
+-- exist only inside the template, so a sizeof probe hits "use of undeclared identifier RADIX".
+-- param_args lists such args (spec args that name the hover's own template parameters) so the
+-- caller can substitute canonical values (config template_args) or degrade to is_template. A
+-- real instantiation (`Foo<64>`, `FixedPoint<10,8>`) has concrete args → param_args is empty.
+-- NOTE the variable-hover blind spot this contract serves: hovering a VARIABLE whose type is
+-- `ExecutionCore<F> *` gives a hover with NO template clause, so `F` can't be classified here —
+-- it looks concrete, and only the probe's compile error reveals it. layout() handles that case
+-- by substitution-before-probe + an actionable error, both driven by the same template_args map.
 local function spec_of(md)
   local spec = md and md:match("([%w_:]+%b<>)")
   if not spec then return nil end
   local params = tparam_names(md)
+  local args, seen = {}, {}
   for tok in spec:match("%b<>"):gmatch("[%a_][%w_]*") do
-    if params[tok] then return nil end -- an arg names a template parameter → un-instantiated
+    if params[tok] and not seen[tok] then seen[tok] = true; args[#args + 1] = tok end
   end
-  return spec
+  return spec, args
+end
+
+-- pure: substitute canonical template arguments into a spec's angle-bracket args (outer AND
+-- nested): "ExecutionCore<F>" + { F = "64" } → "ExecutionCore<64>", { "F=64" }. Word-boundary —
+-- only whole identifiers that are keys of `map` are rewritten; anything else (literals, real
+-- file-scope constants, nested type names) passes through untouched for the compiler to judge.
+local function subst_spec(spec, map)
+  local applied = {}
+  if not (spec and map and next(map)) then return spec, applied end
+  local head, angle = spec:match("^([%w_:]+)(%b<>)$")
+  if not head then return spec, applied end
+  local seen = {}
+  local out = angle:gsub("[%a_][%w_]*", function(tok)
+    local v = map[tok]
+    if v ~= nil then
+      if not seen[tok] then seen[tok] = true; applied[#applied + 1] = tok .. "=" .. tostring(v) end
+      return tostring(v)
+    end
+  end)
+  return head .. out, applied
+end
+
+-- pure: rebuild a probe spelling around clang's did-you-mean SUGGESTION ("tt::ExecutionCore")
+-- when it is a qualified form of the spelling's head — the self-healing retry for namespaced
+-- types (the probe compiles at FILE scope; a hover's spelling is written from inside the
+-- symbol's scope, so `ExecutionCore<64>` needs `tt::` there). nil when the suggestion isn't
+-- a `…::head` requalification (never chase an unrelated fuzzy match into a wrong sizeof).
+local function requalify(spelling, suggestion)
+  local head, angle = (spelling or ""):match("^([%w_:]+)(%b<>)$")
+  if not (head and suggestion and #suggestion > #head + 2) then return nil end
+  if suggestion:sub(-#head) == head and suggestion:sub(-#head - 2, -#head - 1) == "::" then
+    return suggestion .. angle
+  end
 end
 
 -- the enclosing namespace clangd notes in a hover ("// In namespace tt") → "tt", else nil.
@@ -108,19 +147,58 @@ function M.layout(ctx, cb)
     if layout and layout.size then
       return cb(layout, "ok")
     end
-    -- W23: clangd hover omits Size for a template instantiation. If the hover names a concrete
-    -- spec (`Foo<...>`), recover size/align via a sizeof probe; else degrade gracefully.
-    local spec = spec_of(md)
+    -- W23: clangd hover omits Size for a template instantiation. If the hover names a spec
+    -- (`Foo<...>`), recover size/align via a sizeof probe. Dependent args — `Foo<F>` from an
+    -- injected-class-name OR from a variable's type inside a template body — are substituted
+    -- from config template_args (the repo's canonical instantiation, e.g. F=64) so the probe
+    -- compiles at file scope; the result is labeled with what was assumed (computed_for).
+    -- A dependent arg with NO mapping degrades to is_template (hover-classified) or to an
+    -- actionable probe_error naming the config knob (variable-hover, compiler-classified).
+    local spec, param_args = spec_of(md)
     if spec then
-      require("fox-symdeps.sizeprobe").compute(ctx.bufnr, spec, function(sz)
+      local tmap = (require("fox-symdeps").config or {}).template_args or {}
+      local missing = {}
+      for _, p in ipairs(param_args or {}) do
+        if tmap[p] == nil then missing[#missing + 1] = p end
+      end
+      if #missing > 0 then
+        return cb({ is_template = true, missing_args = missing }, "ok")
+      end
+      local sub, applied = subst_spec(spec, tmap)
+      -- the probe compiles at FILE scope but the hover's spelling is written from inside the
+      -- symbol's scope — a namespaced type needs qualification there. Pre-qualify from the
+      -- hover's "// In namespace" note when present; clang's own did-you-mean drives one
+      -- self-healing retry for the rest (param hovers often carry no namespace note).
+      local ns = namespace_from_md(md)
+      local head = sub:match("^([%w_:]+)<")
+      local first = (ns and head and not head:find("::")) and (ns .. "::" .. sub) or sub
+      local probe = require("fox-symdeps.sizeprobe").compute
+      local function finish(sz, spelling, retried)
         if sz and sz.size then
-          cb({ size = sz.size, align = sz.align or (layout and layout.align), computed = true }, "ok")
-        elseif sz and sz.error then
-          cb({ probe_error = sz.error }, "probe_error") -- compile failed → surface it, don't blame the DB
-        else
-          cb(layout, layout and "ok" or "empty")
+          return cb({ size = sz.size, align = sz.align or (layout and layout.align), computed = true,
+               spec = spelling, computed_for = #applied > 0 and table.concat(applied, ", ") or nil }, "ok")
         end
-      end)
+        if sz and sz.error then
+          if not retried then
+            local fixed = requalify(spelling, sz.error:match("did you mean '([%w_:]+)'"))
+            if fixed then return probe(ctx.bufnr, fixed, function(s2) finish(s2, fixed, true) end) end
+            -- the ns pre-qualification itself can be the miss (global-scope type hovered
+            -- inside a namespace) → fall back to the unqualified spelling once
+            if spelling ~= sub then return probe(ctx.bufnr, sub, function(s2) finish(s2, sub, true) end) end
+          end
+          -- an "undeclared identifier" naming one of the spec's angle args is the dependent-type
+          -- case with no mapping (variable hover — no template clause to classify it up front):
+          -- point at the config knob instead of the raw compiler spew.
+          local ident = sz.error:match("undeclared identifier '([%a_][%w_]*)'")
+          if ident and sub:match("%b<>"):find("%f[%w_]" .. ident .. "%f[^%w_]") then
+            return cb({ probe_error = ("type depends on template param '%s' — set template_args.%s in setup() for the canonical instantiation"):format(ident, ident),
+                 missing_args = { ident } }, "probe_error")
+          end
+          return cb({ probe_error = sz.error }, "probe_error") -- compile failed → surface it, don't blame the DB
+        end
+        cb(layout, layout and "ok" or "empty")
+      end
+      probe(ctx.bufnr, first, function(sz) finish(sz, first, false) end)
     elseif md:match("template%s*<") then
       cb({ is_template = true }, "ok") -- un-instantiated template: no concrete size (put cursor on Foo<N>)
     else
@@ -240,6 +318,8 @@ end
 -- exposed for unit tests (pure parse, no nvim needed); see tests/test_parse_layout.lua
 M._parse_layout = parse_layout
 M._spec_of = spec_of
+M._subst_spec = subst_spec
+M._requalify = requalify
 M._namespace_from_md = namespace_from_md
 M._parse_workspace_symbols = parse_workspace_symbols
 

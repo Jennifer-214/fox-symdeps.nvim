@@ -2,6 +2,7 @@
 -- setup(opts):
 --   key     = "<leader>dd"                                            -- trigger for the symbol HUD
 --   palette = { header, badge, title, border, selection, winblend }  -- theme cohesion
+--   template_args = { F = "64" }                                      -- canonical args for dependent template params
 local M = {}
 
 local defaults = {
@@ -10,6 +11,10 @@ local defaults = {
   pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
   doc_dirs = {},  -- extra dirs the `n` notes lens greps for symbol mentions (design specs / a workspace repo)
   auto_panel = false, -- cockpit mode: auto-dock the tracking panel on C++ buffers (min-width gated)
+  template_args = {}, -- map: template param NAME → literal arg (strings). Lets the sizeof probe
+                      -- instantiate a DEPENDENT spelling — `ExecutionCore<F>` hovered via a variable
+                      -- inside a template body, or a primary template's injected-class-name — at the
+                      -- repo's canonical instantiation. The HUD labels what was assumed (@ F=64).
 }
 
 -- callees {name,file,line} → a one-role "Calls" tree for the HUD (file-grouped, jumpable).
