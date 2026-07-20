@@ -38,6 +38,33 @@ function M.check()
     h.warn("no cpp treesitter parser — role classification, Uses, false-sharing degrade (install via nvim-treesitter)")
   end
 
+  -- ── tag layer: the foxtag-derived node model (E.1.2.B 0.3) ────────────────
+  local ok_nm, nm = pcall(require, "fox-symdeps.nodemodel")
+  if ok_nm then
+    local bin = nm.bin()
+    if not bin then
+      h.warn("foxtag not found — tag-nav (:FoxSymdepsDerived / :FoxSymdepsMenu / tag writer) degrades. "
+        .. "Build it (`bash tools/foxtag/build.sh`) or set opts.foxtag_bin. Trees/layout/consumers are unaffected.")
+    else
+      local m = nm.model()
+      if not m then
+        h.warn("foxtag at " .. bin .. " but `grammar --json` gave no node model — rebuild it")
+      else
+        h.ok(("node model derived from foxtag (%d unit types, %d closable) · %s")
+          :format(m.meta.count, vim.tbl_count(m.openers), bin))
+        local st = nm.staleness()
+        if st and st.derived_at then
+          h.warn(("node model derived at %s but repo HEAD is %s — rebuild foxtag (a stale binary emits a "
+            .. "valid-looking envelope, so the tag layer would be silently wrong)")
+            :format(st.derived_at:sub(1, 8), st.repo_at:sub(1, 8)))
+        elseif st then
+          h.warn(("foxtag reports version %s but TOOLCHAIN_VERSION is %s — rebuild foxtag")
+            :format(tostring(st.version), tostring(st.toolchain_version)))
+        end
+      end
+    end
+  end
+
   -- ── plugin state ───────────────────────────────────────────────────────────
   local ok_p, provider = pcall(require, "fox-symdeps.provider")
   if ok_p then

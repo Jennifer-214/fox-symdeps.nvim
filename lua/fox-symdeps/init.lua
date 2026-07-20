@@ -11,6 +11,10 @@ local defaults = {
   pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
   doc_dirs = {},  -- extra dirs the `n` notes lens greps for symbol mentions (design specs / a workspace repo)
   auto_panel = false, -- cockpit mode: auto-dock the tracking panel on C++ buffers (min-width gated)
+  foxtag_bin = nil, -- path to the `foxtag` fact-core binary. Resolution: this opt → PATH → a
+                    -- script-relative guess (last resort). Set it when the plugin is installed
+                    -- remotely (lazy.nvim clones it far from any sibling tools/foxtag/ tree), since
+                    -- the tag node model is DERIVED from `foxtag grammar --json` (E.1.2.B 0.3).
   template_args = {}, -- map: template param NAME → literal arg (strings). Lets the sizeof probe
                       -- instantiate a DEPENDENT spelling — `ExecutionCore<F>` hovered via a variable
                       -- inside a template body, or a primary template's injected-class-name — at the
@@ -169,6 +173,11 @@ function M.setup(opts)
   -- cheap even off-topic. dofile'd fresh per (re)load; provider.clear() runs first → no double-register.
   local lenses_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h") .. "/lenses"
   require("fox-symdeps.pack").setup(vim.list_extend({ lenses_dir }, M.config.pack_dirs))
+  -- Tag layer (E.1.2.B 0.3): warm the foxtag-derived node model (silent — a missing foxtag surfaces
+  -- at point of use with a one-keypress heal, never as boot-time noise), then light up the REAL tag
+  -- adapter through the single install seam. Until this call the adapter was dormant (null no-ops).
+  require("fox-symdeps.nodemodel").setup(M.config)
+  require("fox-symdeps.tagadapter").install(require("fox-symdeps.tag_grammar_adapter"))
   vim.api.nvim_create_user_command("FoxSymdepsReload", function()
     local n = require("fox-symdeps.pack").reload()
     vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
@@ -181,7 +190,14 @@ function M.setup(opts)
   end, { desc = "fox-symdeps: toggle cockpit mode (auto-dock panel on C++ buffers)" })
   vim.api.nvim_create_user_command("FoxSymdepsDerived", function(cmdopts)
     local ctx = require("fox-symdeps.tagcontext").resolve() -- cursor ANYWHERE in a tagged unit (or on the symbol)
-    if not ctx then return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO) end
+    if not ctx then
+      -- Distinguish "no tagged unit here" from "the node model isn't available" — the latter is
+      -- fixable in one keypress (build foxtag → refresh → retry this command), not user error.
+      if not require("fox-symdeps.nodemodel").available() then
+        return require("fox-symdeps.nodemodel").heal(function() vim.cmd(cmdopts.bang and "FoxSymdepsDerived!" or "FoxSymdepsDerived") end)
+      end
+      return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO)
+    end
     local write = cmdopts.bang -- `:FoxSymdepsDerived!` GENERATES the block into the source
     local buf, row0 = vim.api.nvim_get_current_buf(), vim.api.nvim_win_get_cursor(0)[1] - 1
     vim.notify(write and "fox-symdeps · writing derived facts…" or "fox-symdeps · gathering derived facts…", vim.log.levels.INFO)
@@ -205,7 +221,10 @@ function M.setup(opts)
   -- Context action menu — the tag [TYPE] under the cursor filters which ops are offered (D-328).
   vim.api.nvim_create_user_command("FoxSymdepsMenu", function()
     local buf = vim.api.nvim_get_current_buf()
-    local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, vim.api.nvim_win_get_cursor(0)[1] - 1)
+    local blk, err = require("fox-symdeps.tagcontext").enclosing_block(buf, vim.api.nvim_win_get_cursor(0)[1] - 1)
+    if err == "no-model" then -- foxtag unavailable → one-keypress heal, then re-open the menu
+      return require("fox-symdeps.nodemodel").heal(function() vim.cmd("FoxSymdepsMenu") end)
+    end
     local acts = require("fox-symdeps.actions").for_type(blk and blk.type:lower() or "")
     require("fox-symdeps.menu").open(acts, {
       title = blk and ("%s %s"):format(blk.type, blk.name) or "fox-symdeps",

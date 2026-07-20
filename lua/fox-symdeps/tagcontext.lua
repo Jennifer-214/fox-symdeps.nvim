@@ -6,22 +6,38 @@
 --   resolve()                 -> ctx (as context.under_cursor) | nil    (symbol facts, cursor-tolerant)
 local M = {}
 
-local UNIT = { FUNCTION = true, STRUCT = true, REGISTRY = true, FILE = true,
-               TYPE = true, ENUM = true, STRATEGY = true, MACRO = true, TEST = true }
+-- RETIRED (E.1.2.B 0.3, soak-then-delete per D-349): this hardcoded copy is NO LONGER the authority —
+-- the node model is derived from `foxtag grammar --json` via nodemodel.lua. Kept in-tree only for the
+-- soak window; delete once the plugin parity section has passed NON-SKIPPED and the derived path has
+-- been dogfooded. It is retained as evidence of exactly why deriving matters: it is missing ASSERT,
+-- and it wrongly lists FILE/MACRO — units that carry NO [END_<TYPE>] closer.
+local _RETIRED_UNIT = { FUNCTION = true, STRUCT = true, REGISTRY = true, FILE = true,
+                        TYPE = true, ENUM = true, STRATEGY = true, MACRO = true, TEST = true }
+local _ = _RETIRED_UNIT
 
 local function line(buf, i) return vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1] or "" end
 
--- The enclosing unit block for the cursor at row0 (0-indexed). Scan UP: a unit-CLOSER hit first means
--- the cursor sits between blocks (nil); a unit-OPENER hit first means we're inside it. Non-unit tag
--- lines ([TAG]/[SCHEMA]/[CODE]/[DERIVED]/[END_CODE]) and code are skipped — only [END_CODE] is NOT a
--- unit closer (UNIT has no CODE), so a cursor in [DERIVED] still resolves up to its opener.
+-- The enclosing unit block for the cursor at row0 (0-indexed). Scan UP: a scope-CLOSER hit first means
+-- the cursor sits between blocks (nil); a scope-OPENER hit first means we're inside it. Non-unit tag
+-- lines ([TAG]/[SCHEMA]/[CODE]/[DERIVED]/[END_CODE]) and code are skipped.
+--
+-- Openers are the CLOSABLE units only (nodemodel.scope_openers(), derived from foxtag). A LIGHT unit —
+-- FILE / MACRO / TEST / ASSERT — is a point marker with NO [END_<TYPE>]; treating one as an opener
+-- makes the inner scan run to the buffer end and abort the whole search. That was a live bug for
+-- FILE/MACRO (a cursor in a file header resolved to nil), and inside-block [ASSERT] (canonical per
+-- D-340) would have extended it to every unit containing an assert. Skip-and-keep-scanning instead.
+--
+-- Returns (blk|nil, err) — err == "no-model" means foxtag is unavailable, so the caller can offer the
+-- one-keypress heal rather than reporting a misleading "not in a tagged unit".
 function M.enclosing_block(buf, row0)
+  local openers = require("fox-symdeps.nodemodel").scope_openers()
+  if not openers then return nil, "no-model" end
   for i = row0, 0, -1 do
     local l = line(buf, i)
     local et = l:match("//%s*%[END_(%u+)%]")
-    if et and UNIT[et] then return nil end -- closer first → between blocks
+    if et and openers[et] then return nil end -- closer first → between blocks
     local ty, nm = l:match("//%s*%[(%u+)%]_%[([%w_]+)%]")
-    if ty and UNIT[ty] then -- opener first → inside it; confirm the matching closer is at/below cursor
+    if ty and openers[ty] then -- opener first → inside it; confirm the matching closer is at/below cursor
       local n = vim.api.nvim_buf_line_count(buf)
       for j = i + 1, math.min(n - 1, i + 2000) do
         if line(buf, j):match("//%s*%[END_" .. ty .. "%]") then
@@ -30,6 +46,7 @@ function M.enclosing_block(buf, row0)
       end
       return nil
     end
+    -- a non-closable unit line ([FILE]/[MACRO]/[TEST]/[ASSERT]) is NOT an opener → keep scanning up
   end
   return nil
 end

@@ -24,8 +24,19 @@ local function line_tokens(payload)
   return toks
 end
 
-local UNIT = { FUNCTION = true, STRUCT = true, REGISTRY = true, FILE = true, TYPE = true, ENUM = true,
-               STRATEGY = true, MACRO = true, TEST = true }
+-- RETIRED (E.1.2.B 0.3, soak-then-delete per D-349): no longer the authority. The unit-type set is
+-- DERIVED from `foxtag grammar --json` via nodemodel.lua (D-365 — one core, no plugin-side mirror).
+-- Kept in-tree for the soak window only; delete after the plugin parity section passes NON-SKIPPED.
+-- Note it is already drifted (missing ASSERT) — which is precisely why it stopped being authoritative.
+local _RETIRED_UNIT = { FUNCTION = true, STRUCT = true, REGISTRY = true, FILE = true, TYPE = true,
+                        ENUM = true, STRATEGY = true, MACRO = true, TEST = true }
+local _ = _RETIRED_UNIT
+
+-- Is `cat` a unit type? Derived (nodemodel) — ALL unit types, closable or not, since a [FILE]_[x] or
+-- [ASSERT]_[x] line still names the block's unit even though it opens no scannable scope.
+local function is_unit(cat)
+  return require("fox-symdeps.nodemodel").is_unit(cat)
+end
 
 -- parse a comment block's tags. Returns { unit = {type,name}, tags = {CAT = {v,...}}, order = {CAT,...} }
 -- or nil when the block carries no [SCHEMA]_ marker (i.e. it's un-converted prose).
@@ -46,7 +57,7 @@ function M.parse(block_text)
           for i = 2, #toks do vals[#vals + 1] = toks[i] end
           if not out.tags[cat] then out.order[#out.order + 1] = cat end
           out.tags[cat] = vals
-          if UNIT[cat] and vals[1] then out.unit = { type = cat, name = vals[1] } end
+          if is_unit(cat) and vals[1] then out.unit = { type = cat, name = vals[1] } end
           if cat == "COMMENT" or cat == "DIAGRAM" then in_prose = true end  -- freeform body follows
         end
       end
