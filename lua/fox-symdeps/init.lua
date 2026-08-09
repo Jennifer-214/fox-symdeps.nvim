@@ -111,12 +111,19 @@ function M.status()
   return require("fox-symdeps.status").status()
 end
 
--- open the float HUD on the symbol under the cursor + fire the fetch. Public so
+-- open the float HUD on the unit at the cursor + fire the fetch. Public so
 -- browse/roam can reuse it after landing the cursor on a picked symbol.
+-- Cursor-ANYWHERE (north-star §6, the tagcursor slice): resolution routes through
+-- tagcontext.resolve() — on-symbol stays the fast path, but a cursor anywhere between a
+-- unit's opener and [END_X] resolves via the enclosing block + its declared symbol. Same
+-- heal branch as :FoxSymdepsDerived: a missing foxtag is a one-keypress fix, not user error.
 function M.inspect_cursor()
-  local ctx = require("fox-symdeps.context").under_cursor()
+  local ctx = require("fox-symdeps.tagcontext").resolve()
   if not ctx then
-    return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
+    if not require("fox-symdeps.nodemodel").available() then
+      return require("fox-symdeps.nodemodel").heal(function() M.inspect_cursor() end)
+    end
+    return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO)
   end
   local neotree = require("fox-symdeps.neotree")
   local h = require("fox-symdeps.hud").open(ctx, M.config.palette, { on_close = function() neotree.clear() end })
@@ -178,6 +185,10 @@ function M.setup(opts)
   -- adapter through the single install seam. Until this call the adapter was dormant (null no-ops).
   require("fox-symdeps.nodemodel").setup(M.config)
   require("fox-symdeps.tagadapter").install(require("fox-symdeps.tag_grammar_adapter"))
+  -- Ambient enclosing-unit layer (0.4 tagcursor slice): debounced cursor-follow → vim.b.fox_unit
+  -- + User FoxUnitChanged + :FoxUnit. Passive publisher only — consumers opt in; nothing else
+  -- changes behavior by its presence. `tagcursor = { debounce_ms = N }` in setup opts to tune.
+  require("fox-symdeps.tagcursor").enable(M.config.tagcursor or {})
   vim.api.nvim_create_user_command("FoxSymdepsReload", function()
     local n = require("fox-symdeps.pack").reload()
     vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
