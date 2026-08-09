@@ -6,6 +6,10 @@ local M = {}
 local NS = vim.api.nvim_create_namespace("fox_symdeps_ambient")
 local aug
 M.enabled = false
+-- Where the chip renders. Default RIGHT_ALIGN (window right edge): git-blame virtual text owns
+-- the eol slot on the cursor line, and two plugins competing for one space made both unreadable
+-- (operator screenshot, 2026-08-09). "eol" restores the old behavior; set via setup{ambient_pos=...}.
+M.pos = "right_align"
 
 -- pure: size → { text, hl } for the inline tag. Green fits a line, wheat spills the residency band,
 -- plain when it's a large aggregate (still shown, just not alarming). Unit-tested.
@@ -28,7 +32,7 @@ local function update()
     if not vim.api.nvim_buf_is_valid(buf) then return end
     local n = M.note(data.size)
     pcall(vim.api.nvim_buf_set_extmark, buf, NS, line, 0, {
-      virt_text = { { "  " .. n.text, n.hl } }, virt_text_pos = "eol",
+      virt_text = { { "  " .. n.text, n.hl } }, virt_text_pos = M.pos,
     })
   end)
 end

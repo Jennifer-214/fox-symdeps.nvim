@@ -62,7 +62,8 @@ function M.fields(ctx, cb)
           local md = type(res.contents) == "table" and (res.contents.value or "") or tostring(res.contents)
           local pf = parse_field(md)
           if pf then
-            out[#out + 1] = { name = fld.name, offset = pf.offset, size = pf.size, type = pf.type }
+            out[#out + 1] = { name = fld.name, offset = pf.offset, size = pf.size, type = pf.type,
+                              lnum = pos.line, col = pos.character }
           end
         end
         pending = pending - 1

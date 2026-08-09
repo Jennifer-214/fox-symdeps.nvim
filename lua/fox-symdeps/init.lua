@@ -11,6 +11,7 @@ local defaults = {
   pack_dirs = {}, -- W14: dirs of private provider modules to auto-load (e.g. the trader tool-pack)
   doc_dirs = {},  -- extra dirs the `n` notes lens greps for symbol mentions (design specs / a workspace repo)
   auto_panel = false, -- cockpit mode: auto-dock the tracking panel on C++ buffers (min-width gated)
+  ambient_pos = "right_align", -- ambient size-chip placement: "right_align" (clear of git-blame eol text) | "eol"
   foxtag_bin = nil, -- path to the `foxtag` fact-core binary. Resolution: this opt → PATH → a
                     -- script-relative guess (last resort). Set it when the plugin is installed
                     -- remotely (lazy.nvim clones it far from any sibling tools/foxtag/ tree), since
@@ -189,6 +190,7 @@ function M.setup(opts)
   -- + User FoxUnitChanged + :FoxUnit. Passive publisher only — consumers opt in; nothing else
   -- changes behavior by its presence. `tagcursor = { debounce_ms = N }` in setup opts to tune.
   require("fox-symdeps.tagcursor").enable(M.config.tagcursor or {})
+  require("fox-symdeps.ambient").pos = M.config.ambient_pos or "right_align"
   vim.api.nvim_create_user_command("FoxSymdepsReload", function()
     local n = require("fox-symdeps.pack").reload()
     vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)

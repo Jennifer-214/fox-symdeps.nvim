@@ -41,19 +41,54 @@ function M.clear(bufnr)
   if bufnr and vim.api.nvim_buf_is_valid(bufnr) then vim.diagnostic.reset(NS, bufnr) end
 end
 
--- publish cache-line straddle findings for a struct inspected at `ctx` (fields = its layout field list).
+-- pure: the straddling field ITEMS (not just names) + where each crosses. Unit-testable.
+function M._straddler_items(fields)
+  local out = {}
+  for _, f in ipairs(fields or {}) do
+    if f.offset and f.size and f.size > 0 then
+      local first_boundary = (math.floor(f.offset / 64) + 1) * 64
+      if f.offset + f.size > first_boundary then
+        out[#out + 1] = { field = f, boundary = first_boundary,
+                          over = f.offset + f.size - first_boundary }
+      end
+    end
+  end
+  return out
+end
+
+-- publish cache-line straddle findings for a struct inspected at `ctx` (fields = its layout field
+-- list). IDE-humanization (operator, 2026-08-09): the old form was ONE summary diagnostic on the
+-- struct's declaration naming the fields — it said THAT and WHO, never WHERE. Now each straddling
+-- field gets a WARN on ITS OWN LINE (layout items carry lnum since the same change), with the
+-- boundary math in the message; the declaration keeps a summary so the count is visible even when
+-- the fields are scrolled off-screen.
 function M.struct_layout(ctx, fields)
   if not M.enabled or not ctx or ctx.kind == "function" or not ctx.bufnr then return end
   local key = "layout:" .. (ctx.symbol or "?")
-  local bad = M.straddlers(fields)
+  local bad = M._straddler_items(fields)
   if #bad == 0 then return M.set(ctx.bufnr, key, {}) end
-  M.set(ctx.bufnr, key, { {
+  local diags = {}
+  local names = {}
+  for _, s in ipairs(bad) do
+    names[#names + 1] = s.field.name
+    if s.field.lnum then
+      diags[#diags + 1] = {
+        lnum = s.field.lnum, col = s.field.col or 0,
+        severity = vim.diagnostic.severity.WARN,
+        source = "fox-symdeps",
+        message = ("%s straddles the %d-byte cache-line boundary (offset %d, size %d — %d byte(s) past line %d)")
+          :format(s.field.name, s.boundary, s.field.offset, s.field.size, s.over, s.boundary / 64),
+      }
+    end
+  end
+  diags[#diags + 1] = {
     lnum = (ctx.line or 1) - 1,
     col = ctx.col or 0,
     severity = vim.diagnostic.severity.WARN,
     source = "fox-symdeps",
-    message = ("%s: %d field(s) straddle a cache line — %s"):format(ctx.symbol or "?", #bad, table.concat(bad, ", ")),
-  } })
+    message = ("%s: %d field(s) straddle a cache line — %s"):format(ctx.symbol or "?", #bad, table.concat(names, ", ")),
+  }
+  M.set(ctx.bufnr, key, diags)
 end
 
 function M.toggle()
