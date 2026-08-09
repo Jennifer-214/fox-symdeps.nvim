@@ -69,6 +69,29 @@ local function symbol_pos(buf, blk)
   return nil
 end
 
+-- UNIT-FIRST resolution (§6 board/follow semantics): the ENCLOSING unit's declared symbol wins
+-- over whatever word happens to sit under the cursor — the board adds the unit you are IN, and
+-- the follow card follows unit TRANSITIONS, never the words the cursor passes over (following
+-- words is precisely the swapped-out-from-under-you behavior the old panel kind-filter fought).
+-- Falls back to word-under-cursor only OUTSIDE any tagged unit. resolve() below stays word-first
+-- for the point-at-a-thing HUD.
+function M.resolve_unit()
+  local buf = vim.api.nvim_get_current_buf()
+  local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
+  local blk = M.enclosing_block(buf, row0)
+  if blk then
+    local pos = symbol_pos(buf, blk)
+    if pos then
+      local save = vim.api.nvim_win_get_cursor(0)
+      local ok = pcall(vim.api.nvim_win_set_cursor, 0, { pos.row1, pos.col0 })
+      local rctx = ok and require("fox-symdeps.context").under_cursor() or nil
+      pcall(vim.api.nvim_win_set_cursor, 0, save) -- ALWAYS restore
+      if rctx then return rctx end
+    end
+  end
+  return require("fox-symdeps.context").under_cursor()
+end
+
 -- Resolve a full ctx (symbol/kind/container/is_template) for the unit at the cursor, tolerating a
 -- cursor that isn't on the symbol. Fast path = the plain resolve; fallback = read the block + resolve
 -- at the symbol in [CODE] (temporarily, cursor restored). Returns a ctx table | nil.

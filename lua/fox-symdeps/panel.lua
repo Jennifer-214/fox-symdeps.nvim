@@ -1,19 +1,23 @@
--- Persistent side panel. Follows the cursor onto STRUCTS/FUNCTIONS only (not every token), remembering
--- the distinct symbols as tabs. Flip tabs: H/L in-panel or <leader>d[ / d] anywhere (pauses follow);
--- p resumes following; x drops a tab; q closes. The winbar shows: symbol · idx/total · follow-mode.
+-- Persistent side panel — the ACCUMULATE BOARD (north-star §6 role-swap, 2026-08-09).
+-- EXPLICIT-add, multi-card: <leader>dD ADDS the unit at the cursor as a card (opening the board
+-- if closed); it NEVER auto-rotates onto whatever the cursor touches and NEVER closes-on-reuse —
+-- §6 names both as design bugs against the model ("the panel must accumulate, not replace").
+-- Cursor-FOLLOWING is the follow card's job (followcard.lua, the §6 HUD role; cockpit docks that).
+-- Flip cards: H/L in-panel or <leader>d[ / d] anywhere; x drops a card; q closes the board.
+-- Winbar: symbol · idx/total · ⊞ board. Re-adding a symbol RE-SELECTS its card (dedupe, no dup tab).
 -- Reuses the float's render + the shared M.inspect fetch; switching re-fetches (clangd is fast).
 local M = {}
-local P = { hud = nil, pinned = false, aug = nil, palette = {}, hist = {}, idx = 0 }
-local HIST_CAP = 8
+local P = { hud = nil, aug = nil, palette = {}, cards = {}, idx = 0 }
+local CARD_CAP = 8
 
--- pure: push ctx into `hist` (dedupe by symbol, most-recent-last, capped). Returns the new index.
-function M._remember(hist, ctx, cap)
-  for i, c in ipairs(hist) do
-    if c.symbol == ctx.symbol then table.remove(hist, i); break end
+-- pure: push ctx into `cards` (dedupe by symbol, most-recent-last, capped). Returns the new index.
+function M._remember(cards, ctx, cap)
+  for i, c in ipairs(cards) do
+    if c.symbol == ctx.symbol then table.remove(cards, i); break end
   end
-  hist[#hist + 1] = ctx
-  while #hist > cap do table.remove(hist, 1) end
-  return #hist
+  cards[#cards + 1] = ctx
+  while #cards > cap do table.remove(cards, 1) end
+  return #cards
 end
 
 -- pure: 1-based index after stepping `delta`, wrapping over `n` (0 if empty).
@@ -22,20 +26,23 @@ function M._wrap(idx, delta, n)
   return ((idx - 1 + delta) % n) + 1
 end
 
-local function ctx_under_cursor() return require("fox-symdeps.context").under_cursor() end
+function M._count() return #P.cards end -- test seam
+function M._visible() return P.hud and P.hud.ctx and P.hud.ctx.symbol end -- test seam
 
--- compact, non-overflowing winbar: current symbol · position · follow-mode. (The old full-strip tab
--- list truncated in a narrow panel and read as clutter; this also finally surfaces follow vs pinned.)
+-- Cursor-ANYWHERE resolution (same stack as the HUD entry): on-symbol fast path, else the
+-- enclosing unit's declared symbol. The board should add the unit you are IN, not demand the
+-- cursor sit on its name.
+local function ctx_at_cursor() return require("fox-symdeps.tagcontext").resolve_unit() end
+
 local function set_tabbar()
   if not (P.hud and P.hud.win and vim.api.nvim_win_is_valid(P.hud.win)) then return end
-  local cur = P.hist[P.idx]
+  local cur = P.cards[P.idx]
   local sym = cur and cur.symbol or "?"
-  local pos = #P.hist > 1 and ("%%#FoxSymdepsBadge# · %d/%d%%*"):format(P.idx, #P.hist) or ""
-  local mode = P.pinned and "%#FoxSymdepsBadge#  ⏸ pinned%*" or "%#FoxSymdepsBadge#  ↻ following%*"
-  vim.wo[P.hud.win].winbar = ("%%#FoxSymdepsTitle# %s %%*%s%s"):format(sym, pos, mode)
+  local pos = #P.cards > 1 and ("%%#FoxSymdepsBadge# · %d/%d%%*"):format(P.idx, #P.cards) or ""
+  vim.wo[P.hud.win].winbar = ("%%#FoxSymdepsTitle# %s %%*%s%%#FoxSymdepsBadge#  ⊞ board%%*"):format(sym, pos)
 end
 
-local function show(ctx) -- swap the panel to ctx: reset + re-fetch + redraw the tab bar
+local function show(ctx) -- swap the visible card: reset + re-fetch + redraw the tab bar
   P.hud:reset(ctx)
   require("fox-symdeps").inspect(ctx, P.hud)
   set_tabbar()
@@ -46,125 +53,68 @@ function M.close() if P.hud then P.hud:close() end end
 function M.is_open() return P.hud ~= nil and not P.hud.closed end
 
 function M.switch(delta)
-  if not (P.hud and not P.hud.closed) or #P.hist == 0 then return end
-  P.idx = M._wrap(P.idx, delta, #P.hist)
-  P.pinned = true -- flipping the tab bar pauses cursor-follow; 'p' resumes
-  show(P.hist[P.idx])
+  if not M.is_open() or #P.cards == 0 then return end
+  P.idx = M._wrap(P.idx, delta, #P.cards)
+  show(P.cards[P.idx])
 end
 
 function M.close_tab()
-  if #P.hist <= 1 then return M.close() end
-  table.remove(P.hist, P.idx)
-  if P.idx > #P.hist then P.idx = #P.hist end
-  show(P.hist[P.idx])
+  if #P.cards <= 1 then return M.close() end
+  table.remove(P.cards, P.idx)
+  if P.idx > #P.cards then P.idx = #P.cards end
+  show(P.cards[P.idx])
 end
 
-function M.pin()
-  if not (P.hud and P.hud.win and vim.api.nvim_win_is_valid(P.hud.win)) then return end
-  P.pinned = not P.pinned
-  set_tabbar()
-  vim.notify("fox-symdeps panel " .. (P.pinned and "pinned · <leader>d[ / d] flip tabs · p to follow" or "following cursor"),
-    vim.log.levels.INFO)
-end
-
-function M.toggle(palette)
+-- ADD the unit at the cursor as a card (§6's <leader>dD). Opens the board if closed; on an
+-- already-carded symbol it re-selects that card. NEVER closes — q / :q close the board.
+function M.add(palette)
   P.palette = palette or P.palette
-  if P.hud and not P.hud.closed then return M.close() end
-  local ctx = ctx_under_cursor()
-  if not ctx then return vim.notify("fox-symdeps · put the cursor on a symbol to track", vim.log.levels.INFO) end
+  local ctx = ctx_at_cursor()
+  if not ctx then
+    if not require("fox-symdeps.nodemodel").available() then
+      return require("fox-symdeps.nodemodel").heal(function() M.add(P.palette) end)
+    end
+    return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol) to add its card",
+      vim.log.levels.INFO)
+  end
+
+  if M.is_open() then
+    P.idx = M._remember(P.cards, ctx, CARD_CAP)
+    show(P.cards[P.idx])
+    return
+  end
+
+  local hud = require("fox-symdeps.hud")
   local origin = vim.api.nvim_get_current_win()
-  P.pinned = false
-  P.hist, P.idx = {}, 0
-  P.hud = require("fox-symdeps.hud").open(ctx, P.palette, {
+  P.cards, P.idx = {}, 0
+  P.hud = hud.open(ctx, P.palette, {
     mode = "panel",
     on_close = function()
       if P.aug then pcall(vim.api.nvim_del_augroup_by_id, P.aug); P.aug = nil end
-      if P.edit_timer then pcall(function() P.edit_timer:stop(); P.edit_timer:close() end); P.edit_timer = nil end
-      if P.prev_autoread ~= nil then vim.o.autoread = P.prev_autoread; P.prev_autoread = nil end
-      P.hud = nil; P.pinned = false; P.hist, P.idx = {}, 0
+      if P.hud and P.hud.edit_timer then pcall(function() P.hud.edit_timer:stop(); P.hud.edit_timer:close() end) end
+      if P.hud and P.hud._detach_autoread then P.hud._detach_autoread() end
+      P.hud = nil; P.cards, P.idx = {}, 0
     end,
   })
   for _, k in ipairs({
-    { "p", M.pin }, { "L", function() M.switch(1) end }, { "H", function() M.switch(-1) end },
+    { "L", function() M.switch(1) end }, { "H", function() M.switch(-1) end },
     { "x", M.close_tab },
   }) do
     vim.keymap.set("n", k[1], k[2], { buffer = P.hud.buf, nowait = true, silent = true })
   end
-  P.idx = M._remember(P.hist, ctx, HIST_CAP)
+  P.idx = M._remember(P.cards, ctx, CARD_CAP)
   require("fox-symdeps").inspect(ctx, P.hud)
   set_tabbar()
   if vim.api.nvim_win_is_valid(origin) then vim.api.nvim_set_current_win(origin) end
 
   P.aug = vim.api.nvim_create_augroup("FoxSymdepsPanel", { clear = true })
-  -- follow the cursor: re-resolve the symbol under it (unless paused) + remember it as a tab
-  vim.api.nvim_create_autocmd("CursorHold", {
-    group = P.aug,
-    callback = function()
-      if not P.hud or P.hud.closed or P.pinned then return end
-      if vim.api.nvim_get_current_win() == P.hud.win then return end
-      local c = ctx_under_cursor()
-      -- only re-track meaningful symbols (structs/functions/types) — not every local/field/keyword the
-      -- cursor passes over, which is what made the panel feel like it swapped out from under you.
-      local trackable = c and (c.kind == "struct" or c.kind == "function" or c.kind == "type")
-      if trackable and c.symbol ~= P.hud.ctx.symbol then
-        P.idx = M._remember(P.hist, c, HIST_CAP)
-        show(c)
-      end
-    end,
-  })
-  -- live-edit: debounced re-fetch of the tracked symbol's LAYOUT on a code change
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-    group = P.aug,
-    callback = function()
-      if not P.hud or P.hud.closed then return end
-      if vim.api.nvim_get_current_win() == P.hud.win then return end
-      if P.edit_timer then P.edit_timer:stop(); P.edit_timer:close() end
-      P.edit_timer = vim.uv.new_timer()
-      P.edit_timer:start(1500, 0, vim.schedule_wrap(function()
-        if P.edit_timer then P.edit_timer:stop(); P.edit_timer:close(); P.edit_timer = nil end
-        if P.hud and not P.hud.closed then require("fox-symdeps").refresh_layout(P.hud.ctx, P.hud) end
-      end))
-    end,
-  })
-  -- co-programming: reflect EXTERNAL edits (e.g. Claude Code in another window). autoread + checktime
-  -- on pause/focus reload files changed on disk; when the reloaded file holds the tracked symbol,
-  -- re-fetch its layout so you watch its size change (set_layout renders the delta) with no manual
-  -- step. An unsaved buffer is never clobbered — nvim warns on conflict (built-in W12 guard).
-  P.prev_autoread = vim.o.autoread
-  vim.o.autoread = true
-  vim.api.nvim_create_autocmd({ "CursorHold", "FocusGained", "BufEnter" }, {
-    group = P.aug,
-    callback = function() if P.hud and not P.hud.closed then pcall(vim.cmd, "checktime") end end,
-  })
-  vim.api.nvim_create_autocmd({ "FileChangedShellPost", "BufReadPost" }, {
-    group = P.aug,
-    callback = function(ev)
-      if not (P.hud and not P.hud.closed and P.hud.ctx and ev.file) then return end
-      if vim.fs.normalize(ev.file) == vim.fs.normalize(P.hud.ctx.file) then
-        P.hud.external_reload = true -- set_layout ambient-notifies a sizeof change
-        P.hud.external_breakcheck = true -- cascade auto-runs break-check → what broke across files
-        -- FULL re-inspect (not just layout): the cross-file cascade + consumers refresh too, so a
-        -- seemingly-minor external change shows its blast radius, not only its new size.
-        require("fox-symdeps").inspect(P.hud.ctx, P.hud)
-      end
-    end,
-  })
-
-  -- close the panel when it would be the last window; clean up if closed directly
-  vim.api.nvim_create_autocmd("WinClosed", {
-    group = P.aug,
-    callback = function()
-      vim.schedule(function()
-        if not P.hud then return end
-        if not vim.api.nvim_win_is_valid(P.hud.win) then return M.close() end
-        local others = 0
-        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-          if vim.api.nvim_win_is_valid(w) and w ~= P.hud.win then others = others + 1 end
-        end
-        if others == 0 then M.close() end
-      end)
-    end,
-  })
+  hud.attach_live_refresh(P.hud, P.aug)      -- debounced layout re-fetch of the VISIBLE card
+  hud.attach_external_reload(P.hud, P.aug)   -- co-programming: disk edits re-inspect + cascade
+  hud.attach_last_window_guard(P.hud, P.aug, M.close)
 end
+
+-- Back-compat shim: cockpit + old muscle memory called toggle(). The board's verb is ADD —
+-- close-on-reuse was the §6 design bug, so toggle no longer closes. q closes.
+function M.toggle(palette) return M.add(palette) end
 
 return M

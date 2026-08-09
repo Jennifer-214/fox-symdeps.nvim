@@ -950,4 +950,73 @@ function Hud:close()
   if self.on_close then pcall(self.on_close) end
 end
 
+-- ── Shared hud-lifecycle ATTACHERS (§6 role-swap slice) ──────────────────────────────────────
+-- The live-edit refetch + external-reload cascade + last-window guard used to live inline in
+-- panel.lua; the follow card needs the identical blocks. Extracted HERE (hud owns hud-lifecycle)
+-- so the two hosts share one implementation instead of a drifting mirror. Each attacher hangs
+-- its state on the hud handle `h`; autocmds live in the caller's augroup `aug`, so the caller's
+-- existing on_close augroup teardown cleans everything.
+
+-- Debounced re-fetch of the CURRENT card's layout on a code change ("watch it shrink").
+function M.attach_live_refresh(h, aug)
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = aug,
+    callback = function()
+      if not h or h.closed then return end
+      if vim.api.nvim_get_current_win() == h.win then return end
+      if h.edit_timer then h.edit_timer:stop(); h.edit_timer:close() end
+      h.edit_timer = vim.uv.new_timer()
+      h.edit_timer:start(1500, 0, vim.schedule_wrap(function()
+        if h.edit_timer then h.edit_timer:stop(); h.edit_timer:close(); h.edit_timer = nil end
+        if h and not h.closed then require("fox-symdeps").refresh_layout(h.ctx, h) end
+      end))
+    end,
+  })
+end
+
+-- Co-programming: reflect EXTERNAL edits (another agent/editor touching the file on disk).
+-- autoread is GLOBAL, so it is REFCOUNTED across hosts — the last detach restores the user's value.
+local autoread_refs, autoread_prev = 0, nil
+function M.attach_external_reload(h, aug)
+  if autoread_refs == 0 then autoread_prev = vim.o.autoread; vim.o.autoread = true end
+  autoread_refs = autoread_refs + 1
+  h._detach_autoread = function()
+    autoread_refs = math.max(0, autoread_refs - 1)
+    if autoread_refs == 0 and autoread_prev ~= nil then vim.o.autoread = autoread_prev; autoread_prev = nil end
+  end
+  vim.api.nvim_create_autocmd({ "CursorHold", "FocusGained", "BufEnter" }, {
+    group = aug,
+    callback = function() if h and not h.closed then pcall(vim.cmd, "checktime") end end,
+  })
+  vim.api.nvim_create_autocmd({ "FileChangedShellPost", "BufReadPost" }, {
+    group = aug,
+    callback = function(ev)
+      if not (h and not h.closed and h.ctx and ev.file) then return end
+      if vim.fs.normalize(ev.file) == vim.fs.normalize(h.ctx.file) then
+        h.external_reload = true    -- set_layout ambient-notifies a sizeof change
+        h.external_breakcheck = true -- cascade auto-runs break-check → what broke across files
+        require("fox-symdeps").inspect(h.ctx, h)
+      end
+    end,
+  })
+end
+
+-- Close the hosted window when it would be the last one; clean up on direct :q of the float.
+function M.attach_last_window_guard(h, aug, close_fn)
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = aug,
+    callback = function()
+      vim.schedule(function()
+        if not h or h.closed then return end
+        if not vim.api.nvim_win_is_valid(h.win) then return close_fn() end
+        local others = 0
+        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+          if vim.api.nvim_win_is_valid(w) and w ~= h.win then others = others + 1 end
+        end
+        if others == 0 then close_fn() end
+      end)
+    end,
+  })
+end
+
 return M
