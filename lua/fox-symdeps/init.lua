@@ -239,9 +239,11 @@ function M.setup(opts)
       return require("fox-symdeps.nodemodel").heal(function() vim.cmd("FoxSymdepsMenu") end)
     end
     local acts = require("fox-symdeps.actions").for_type(blk and blk.type:lower() or "")
+    local anchor = require("fox-symdeps.panel").win() or require("fox-symdeps.followcard").win()
     require("fox-symdeps.menu").open(acts, {
       title = blk and ("%s %s"):format(blk.type, blk.name) or "fox-symdeps",
       palette = M.config.palette,
+      anchor_win = anchor, -- dock to the open board/follow card (sub-panel); cursor otherwise
     })
   end, { desc = "fox-symdeps: context action menu (ops filtered by the tag [TYPE])" })
   vim.api.nvim_create_user_command("FoxSymdepsReloadAll", function()

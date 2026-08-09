@@ -10,6 +10,8 @@ local S = { hud = nil, aug = nil, palette = {} }
 
 function M.is_open() return S.hud ~= nil and not S.hud.closed end
 
+function M.win() return M.is_open() and S.hud.win or nil end
+
 function M._symbol() return S.hud and S.hud.ctx and S.hud.ctx.symbol end -- test seam
 
 function M.close() if S.hud then S.hud:close() end end

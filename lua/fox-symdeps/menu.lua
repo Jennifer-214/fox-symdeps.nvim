@@ -6,15 +6,39 @@ local M = {}
 
 -- open(items, opts): items = { { label = string, run = function() end }, … }
 --   opts = { title = string?, palette = table? }
+-- write-tier icon: ⚠ = edits SOURCE lines · ✎ = writes tag-comments only (T6) · " " = read-only.
+function M._writes_icon(it)
+  if it.writes == "code" then return "⚠" end
+  if it.writes == "comments" then return "✎" end
+  return " "
+end
+
+-- Where the menu floats. Operator ask (2026-08-09): "rather than popping up here, maybe attached
+-- to the hud, or within the panel as a sub panel" — an open board/follow/HUD window passed as
+-- `anchor_win` docks the menu INSIDE that window's top-left (sub-panel feel); otherwise cursor.
+function M._placement(anchor_win)
+  if anchor_win and vim.api.nvim_win_is_valid(anchor_win) then
+    return { relative = "win", win = anchor_win, row = 1, col = 2 }
+  end
+  return { relative = "cursor", row = 1, col = 0 }
+end
+
 function M.open(items, opts)
   opts = opts or {}
   if not items or #items == 0 then
     return vim.notify("fox-symdeps · no actions for this unit", vim.log.levels.INFO)
   end
   local lines, width = {}, (opts.title and #opts.title + 6 or 16)
+  local any_writes = false
   for i, it in ipairs(items) do
-    lines[i] = ("  %d  %s"):format(i, it.label)
+    lines[i] = ("  %d %s %s"):format(i, M._writes_icon(it), it.label)
+    if it.writes then any_writes = true end
     width = math.max(width, vim.fn.strdisplaywidth(lines[i]) + 2)
+  end
+  if any_writes then
+    -- operator ask (2026-08-09): "a caution icon so i know if it changes the source or not"
+    lines[#lines + 1] = "  ✎ writes tag-comments · ⚠ edits source"
+    width = math.max(width, vim.fn.strdisplaywidth(lines[#lines]) + 2)
   end
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -22,11 +46,12 @@ function M.open(items, opts)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
 
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "cursor", row = 1, col = 0, width = width, height = #lines,
-    style = "minimal", border = "rounded",
-    title = opts.title and (" " .. opts.title .. " ") or nil, title_pos = "center",
-  })
+  local place = M._placement(opts.anchor_win)
+  place.width, place.height = width, #lines
+  place.style, place.border = "minimal", "rounded"
+  place.title = opts.title and (" " .. opts.title .. " ") or nil
+  if place.title then place.title_pos = "center" end
+  local win = vim.api.nvim_open_win(buf, true, place)
   vim.wo[win].cursorline = true
   vim.wo[win].cursorlineopt = "line" -- highlight the WHOLE row, not just the number column
   -- the selection BAR: reuse the HUD's own FoxSymdepsSelection (bright peach row + dark ink, bold) so

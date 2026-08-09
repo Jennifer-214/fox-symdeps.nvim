@@ -867,6 +867,7 @@ function Hud:_menu()
   require("fox-symdeps.menu").open(wrapped, {
     title = ("%s %s"):format((ctx.kind or "unit"):upper(), ctx.symbol),
     palette = self.palette,
+    anchor_win = self.win, -- the HUD's own menu docks to the HUD (operator: "attached to the hud")
   })
 end
 
