@@ -48,9 +48,72 @@ local function show(ctx) -- swap the visible card: reset + re-fetch + redraw the
   set_tabbar()
 end
 
-function M.close() if P.hud then P.hud:close() end end
+function M.close()
+  if P.companion then P.companion:close() end
+  if P.hud then P.hud:close() end
+end
 
 function M.is_open() return P.hud ~= nil and not P.hud.closed end
+
+-- ── COMPARE (§6 dual-panel, the N-card generalization's first step) ─────────────────────────
+-- `s` in-board toggles a COMPANION strip showing another card side-by-side with the visible one
+-- ("when there's room, show TWO units side-by-side"). v1 rules, deliberately simple: the
+-- companion opens on the PREVIOUSLY-selected card (compare what I'm on with what I was on),
+-- stays STATIC while H/L drive the main card, and closes with `s` again / its card's drop /
+-- the board. Width-gated — a cramped compare is worse than none.
+
+local function compare_room()
+  local cols, lines = vim.o.columns, vim.o.lines
+  if (cols / math.max(lines, 1)) >= 2.2 then return cols >= 140 end -- two right-strips
+  return lines >= 36                                                 -- two bottom-strips
+end
+
+function M._companion_symbol() -- test seam
+  return P.companion and not P.companion.closed and P.companion.ctx and P.companion.ctx.symbol or nil
+end
+
+function M.compare()
+  if not M.is_open() then return end
+  if P.companion and not P.companion.closed then
+    P.companion:close()
+    return
+  end
+  if #P.cards < 2 then
+    return vim.notify("fox-symdeps · add a second card (<leader>dD on another unit) to compare",
+      vim.log.levels.INFO)
+  end
+  if not compare_room() then
+    return vim.notify("fox-symdeps · not enough room for a compare strip (widen the editor)",
+      vim.log.levels.INFO)
+  end
+  -- the previously-selected card = the most recent OTHER entry (cards are most-recent-last)
+  local other
+  for i = #P.cards, 1, -1 do
+    if i ~= P.idx then other = P.cards[i]; break end
+  end
+  local hud = require("fox-symdeps.hud")
+  local origin = vim.api.nvim_get_current_win()
+  P.companion = hud.open(other, P.palette, {
+    mode = "panel",
+    on_close = function()
+      if P.companion and P.companion.edit_timer then
+        pcall(function() P.companion.edit_timer:stop(); P.companion.edit_timer:close() end)
+      end
+      if P.companion and P.companion._detach_autoread then P.companion._detach_autoread() end
+      P.companion = nil
+    end,
+  })
+  if P.companion.win and vim.api.nvim_win_is_valid(P.companion.win) then
+    vim.wo[P.companion.win].winbar =
+      ("%%#FoxSymdepsTitle# %s %%*%%#FoxSymdepsBadge#  ⇄ compare%%*"):format(other.symbol)
+  end
+  require("fox-symdeps").inspect(other, P.companion)
+  if P.aug then
+    hud.attach_live_refresh(P.companion, P.aug)     -- watch BOTH cards shrink
+    hud.attach_external_reload(P.companion, P.aug)  -- refcounted autoread handles the pair
+  end
+  if vim.api.nvim_win_is_valid(origin) then vim.api.nvim_set_current_win(origin) end
+end
 
 function M.switch(delta)
   if not M.is_open() or #P.cards == 0 then return end
@@ -60,6 +123,11 @@ end
 
 function M.close_tab()
   if #P.cards <= 1 then return M.close() end
+  local dropped = P.cards[P.idx]
+  if dropped and P.companion and not P.companion.closed
+     and P.companion.ctx and P.companion.ctx.symbol == dropped.symbol then
+    P.companion:close()
+  end
   table.remove(P.cards, P.idx)
   if P.idx > #P.cards then P.idx = #P.cards end
   show(P.cards[P.idx])
@@ -93,12 +161,13 @@ function M.add(palette)
       if P.aug then pcall(vim.api.nvim_del_augroup_by_id, P.aug); P.aug = nil end
       if P.hud and P.hud.edit_timer then pcall(function() P.hud.edit_timer:stop(); P.hud.edit_timer:close() end) end
       if P.hud and P.hud._detach_autoread then P.hud._detach_autoread() end
+      if P.companion then P.companion:close() end
       P.hud = nil; P.cards, P.idx = {}, 0
     end,
   })
   for _, k in ipairs({
     { "L", function() M.switch(1) end }, { "H", function() M.switch(-1) end },
-    { "x", M.close_tab },
+    { "x", M.close_tab }, { "s", M.compare },
   }) do
     vim.keymap.set("n", k[1], k[2], { buffer = P.hud.buf, nowait = true, silent = true })
   end
