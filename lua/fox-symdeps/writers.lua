@@ -186,7 +186,7 @@ function M.for_struct(ctx, cb)
     c:request("textDocument/documentSymbol", { textDocument = td }, function(err, syms)
       if err or not syms then return cb(nil, "empty") end
       local fpos = field_positions(syms, ctx.symbol) or {}
-      local writers, sites, cache = {}, {}, {}
+      local writers, sites, cache, unresolved = {}, {}, {}, {}
       local touches = {} -- fn -> set of field names it references (read OR write) — for density
       local function content_of(uri)
         local file = vim.uri_to_fname(uri)
@@ -198,8 +198,10 @@ function M.for_struct(ctx, cb)
       end
       local pending = 0
       local function finish()
+        -- `unresolved` = fields whose reference query ERRORED (D-413/F11): the write-set is
+        -- UNKNOWN there, not empty — consumers must render the refusal, never a silent zero.
         cb({ fields = fields, writers = writers, sites = sites, touches = touches,
-          risks = M.risk(fields, writers) }, "ok")
+          unresolved = unresolved, risks = M.risk(fields, writers) }, "ok")
       end
       for _, f in ipairs(fields) do
         local p = fpos[f.name]
@@ -207,7 +209,16 @@ function M.for_struct(ctx, cb)
           pending = pending + 1
           c:request("textDocument/references",
             { textDocument = td, position = p, context = { includeDeclaration = false } },
-            function(_, refs)
+            function(rerr, refs)
+              if rerr then
+                -- D-413/F11 refusal contract (Lua): an LSP error is NOT "zero writers" — the
+                -- field's write-set is UNKNOWN; the HUD write-set feeds the [THREAD] curation
+                -- the H6 gate trusts, so the refusal must be carried, never flattened to empty.
+                unresolved[#unresolved + 1] = f.name
+                pending = pending - 1
+                if pending == 0 then finish() end
+                return
+              end
               local wset = {}
               for _, r in ipairs(refs or {}) do
                 local content, file = content_of(r.uri)
