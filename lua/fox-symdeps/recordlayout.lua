@@ -93,13 +93,29 @@ function M.parse(dump)
 end
 
 -- census(bufnr, cb): compile the buffer's TU with the record-layout dump on, parse it.
+-- ABI-constant system types (x86-64 SysV / glibc / libstdc++) the dump can't resolve by
+-- record-name (typedefs of anonymous unions / opaque handles). Values PINNED by the compiled
+-- probe tooth in the recordlayout tests (D-413 leaf-2; A-class C(c) confirmed by probe) —
+-- extend the table and the tooth TOGETHER. The v1 endgame replaces this with compiler-answered
+-- member-sizeof probes (O2b), deleting the table.
+local ABI = {
+  ["pthread_mutex_t"] = 40, ["pthread_cond_t"] = 48, ["pthread_t"] = 8,
+  ["std::thread"] = 8,  -- one native_handle (pthread_t) on libstdc++
+  ["time_t"] = 8, ["sig_atomic_t"] = 4, ["__sig_atomic_t"] = 4,
+}
+
 -- pure: byte size of a field TYPE, or nil if it can't be resolved exactly (opaque typedef, enum,
 -- unknown). `by_name` maps a canonicalized record name → sizeof (built from the census itself, so
--- nested engine structs resolve). Arrays multiply the element size; pointers are 8. Conservative:
--- never guesses — an unresolved field makes its struct "partial" and excluded from the straddler tile.
+-- nested engine structs resolve). Arrays multiply the element size; pointers are 8; cv-qualifiers
+-- strip before lookup; `std::atomic<T>` sizes as T (lock-free ≤16 B — probe-tooth-pinned). Never
+-- GUESSES — an unresolvable field goes to the caller's UNVERIFIED path (tri-state per D-413),
+-- never to a made-up value.
 function M.field_size(typ, by_name)
   if not typ then return nil end
   typ = typ:gsub("^%s+", ""):gsub("%s+$", "")
+  typ = typ:gsub("^const%s+", ""):gsub("^volatile%s+", ""):gsub("^const%s+", "")
+  local at = typ:match("^std::atomic<(.+)>$") or typ:match("^atomic<(.+)>$")
+  if at then return M.field_size(at, by_name) end
   local base, dims = typ:match("^(.-)(%[.+%])$")
   if base then
     local n = 1
@@ -109,6 +125,7 @@ function M.field_size(typ, by_name)
   end
   if typ:find("%*%s*$") then return 8 end -- pointer / reference-to-pointer
   if PRIM[typ] then return PRIM[typ] end
+  if ABI[typ] then return ABI[typ] end
   local c = canon(typ)
   return by_name and (by_name[c] or by_name[stripns(c)]) or nil
 end
@@ -116,9 +133,14 @@ end
 -- pure: the cache-line straddlers across a census. A "straddler" here is a field ≤ 64 B (one that
 -- COULD be cache-resident) whose byte span crosses a 64 B boundary because of where it sits — the
 -- placement/false-sharing risk. Fields > 64 B span lines inherently (a big buffer), so they're not
--- flagged. Only FULLY-resolved structs are reported (every field sized) → no guessing, no false
--- alarms; partial structs are counted separately so the coverage is honest, never silently dropped.
--- Returns { report = { { name, size, fields={{name,off,size}} }, ... }, partial = N }.
+-- flagged. TRI-STATE honest (D-413 leaf-2 — the NotifyState class): RESOLVED hits ALWAYS report,
+-- even inside a partially-resolved record (the old record-wide veto silently hid real straddlers);
+-- an UNRESOLVED field is bounded by the next field's offset (record size at the tail) — if even
+-- that UPPER BOUND stays inside one 64 B line the field is PROVEN non-straddling (padding only
+-- inflates the bound), so only bound-crossing unresolved fields stay UNVERIFIED. No guessing
+-- anywhere: bounds are proofs, unverified is NAMED, and a record is never silently vetoed.
+-- Returns { report = { { name, size, fields={{name,off,size}}, unverified={names} }, ... },
+--           partial = N }  (partial = records with ≥1 genuinely-UNVERIFIED field).
 function M.straddlers(records)
   local by = {}
   for _, r in ipairs(records or {}) do
@@ -127,20 +149,26 @@ function M.straddlers(records)
   local report, partial = {}, 0
   for _, r in ipairs(records or {}) do
     if r.fields and #r.fields > 0 and not is_noise(r.name) then
-      local unresolved, hits = 0, {}
-      for _, f in ipairs(r.fields) do
+      local hits, unverified = {}, {}
+      for i, f in ipairs(r.fields) do
         local s = M.field_size(f.type, by)
-        if not s then
-          unresolved = unresolved + 1
-        elseif s > 0 and s <= 64 and math.floor(f.off / 64) ~= math.floor((f.off + s - 1) / 64) then
-          hits[#hits + 1] = { name = f.name, off = f.off, size = s }
+        if s then
+          if s > 0 and s <= 64 and math.floor(f.off / 64) ~= math.floor((f.off + s - 1) / 64) then
+            hits[#hits + 1] = { name = f.name, off = f.off, size = s }
+          end
+        else
+          local nxt = r.fields[i + 1]
+          local bound = nxt and (nxt.off - f.off) or (r.size and (r.size - f.off) or nil)
+          if not bound or bound <= 0
+             or math.floor(f.off / 64) ~= math.floor((f.off + bound - 1) / 64) then
+            unverified[#unverified + 1] = f.name
+          end
         end
       end
-      if unresolved > 0 then
-        partial = partial + 1
-      elseif #hits > 0 then
-        report[#report + 1] = { name = r.name, size = r.size, fields = hits }
+      if #hits > 0 or #unverified > 0 then
+        report[#report + 1] = { name = r.name, size = r.size, fields = hits, unverified = unverified }
       end
+      if #unverified > 0 then partial = partial + 1 end
     end
   end
   table.sort(report, function(a, b) return #a.fields > #b.fields end)
