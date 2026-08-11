@@ -269,53 +269,76 @@ function M.setup(opts)
     group = vim.api.nvim_create_augroup("FoxSymdeps", { clear = true }),
     callback = function() set_highlights(M.config.palette) end,
   })
-  vim.keymap.set("n", M.config.key, M.inspect_cursor, { desc = "fox-symdeps: symbol HUD" })
-  vim.keymap.set("n", "<leader>dD", function()
-    require("fox-symdeps.panel").add(M.config.palette)
-  end, { desc = "fox-symdeps: board — ADD this unit's card (accumulates; s compares; q closes)" })
-  vim.keymap.set("n", "<leader>df", function()
-    require("fox-symdeps.followcard").toggle(M.config.palette)
-  end, { desc = "fox-symdeps: follow card (auto-follows the enclosing unit)" })
-  vim.keymap.set("n", "<leader>dS", function()
-    require("fox-symdeps.browse").browse(M.config.palette)
-  end, { desc = "fox-symdeps: browse structs" })
-  vim.keymap.set("n", "<leader>dr", function()
-    require("fox-symdeps.browse").roam(M.config.palette)
-  end, { desc = "fox-symdeps: roam to any symbol (workspace)" })
-  vim.keymap.set("n", "<leader>dw", function()
-    require("fox-symdeps.dashboard").open(M.config.palette)
-  end, { desc = "fox-symdeps: codebase dashboard (whole-project risks)" })
-  vim.keymap.set("n", "<leader>dg", function()
-    require("fox-symdeps.diagnostics").toggle()
-  end, { desc = "fox-symdeps: toggle straddle diagnostics" })
-  vim.keymap.set("n", "<leader>dl", function()
-    require("fox-symdeps.ambient").toggle()
-  end, { desc = "fox-symdeps: ambient layout lens (inline size as you move)" })
-  vim.keymap.set("n", "<leader>da", function()
-    require("fox-symdeps.assertion").insert()
-  end, { desc = "fox-symdeps: lock layout (insert static_assert sizeof/alignof)" })
-  vim.keymap.set("n", "<leader>dc", function()
-    require("fox-symdeps.status").toggle()
-  end, { desc = "fox-symdeps: toggle the always-on size chip (winbar)" })
-  vim.keymap.set("n", "<leader>de", function()
-    require("fox-symdeps.asmexplorer").open(M.config.palette)
-  end, { desc = "fox-symdeps: source↔asm explorer (side-by-side, cursor-synced, 1:1)" })
-  vim.keymap.set("n", "<leader>db", function()
-    require("fox-symdeps.branchtag").toggle()
-  end, { desc = "fox-symdeps: inline data-dependent branch tags (▲, non-destructive)" })
-  vim.keymap.set("n", "<leader>du", toggle_lens, { desc = "fox-symdeps: use-lens (in-code tags)" })
-  vim.keymap.set("n", "<leader>dm", function() vim.cmd("FoxSymdepsMenu") end, { desc = "fox-symdeps: action menu (context-filtered by tag [TYPE])" })
-  vim.keymap.set("n", "]u", function() require("fox-symdeps.highlight").next() end, { desc = "fox-symdeps: next use" })
-  vim.keymap.set("n", "[u", function() require("fox-symdeps.highlight").prev() end, { desc = "fox-symdeps: prev use" })
-  -- panel tab flip from ANYWHERE (the panel's own H/L are buffer-local + collide with bufferline;
-  -- these are global so you can flip tracked symbols without leaving your code window)
-  vim.keymap.set("n", "<leader>d[", function() require("fox-symdeps.panel").switch(-1) end, { desc = "fox-symdeps: panel prev tab" })
-  vim.keymap.set("n", "<leader>d]", function() require("fox-symdeps.panel").switch(1) end, { desc = "fox-symdeps: panel next tab" })
+  -- ── KEYMAPS: one registry, every doc surface DERIVES (fleet K4 — four hand-copies of this
+  -- list existed and three had drifted). Add a map = ONE row here; registration, the `?` help
+  -- float ("Open" section, via M.keymap_help_lines) and future doc surfaces follow. `hint` is
+  -- the short help-float form; `desc` the full :map description.
+  M._keymaps = {
+    { lhs = M.config.key, hint = "float HUD", fn = M.inspect_cursor,
+      desc = "fox-symdeps: symbol HUD" },
+    { lhs = "<leader>dD", hint = "board (add card)", fn = function() require("fox-symdeps.panel").add(M.config.palette) end,
+      desc = "fox-symdeps: board — ADD this unit's card (accumulates; s compares; q closes)" },
+    { lhs = "<leader>df", hint = "follow card", fn = function() require("fox-symdeps.followcard").toggle(M.config.palette) end,
+      desc = "fox-symdeps: follow card (auto-follows the enclosing unit)" },
+    { lhs = "<leader>dS", hint = "browse structs", fn = function() require("fox-symdeps.browse").browse(M.config.palette) end,
+      desc = "fox-symdeps: browse structs" },
+    { lhs = "<leader>dr", hint = "roam symbols", fn = function() require("fox-symdeps.browse").roam(M.config.palette) end,
+      desc = "fox-symdeps: roam to any symbol (workspace)" },
+    { lhs = "<leader>dw", hint = "dashboard", fn = function() require("fox-symdeps.dashboard").open(M.config.palette) end,
+      desc = "fox-symdeps: codebase dashboard (whole-project risks)" },
+    { lhs = "<leader>dg", hint = "straddle diagnostics", fn = function() require("fox-symdeps.diagnostics").toggle() end,
+      desc = "fox-symdeps: toggle straddle diagnostics" },
+    { lhs = "<leader>dl", hint = "inline size lens", fn = function() require("fox-symdeps.ambient").toggle() end,
+      desc = "fox-symdeps: ambient layout lens (inline size as you move)" },
+    { lhs = "<leader>da", hint = "lock layout (static_assert)", fn = function() require("fox-symdeps.assertion").insert() end,
+      desc = "fox-symdeps: lock layout (insert static_assert sizeof/alignof)" },
+    { lhs = "<leader>dc", hint = "size chip (winbar)", fn = function() require("fox-symdeps.status").toggle() end,
+      desc = "fox-symdeps: toggle the always-on size chip (winbar)" },
+    { lhs = "<leader>de", hint = "source↔asm explorer", fn = function() require("fox-symdeps.asmexplorer").open(M.config.palette) end,
+      desc = "fox-symdeps: source↔asm explorer (side-by-side, cursor-synced, 1:1)" },
+    { lhs = "<leader>db", hint = "branch tags", fn = function() require("fox-symdeps.branchtag").toggle() end,
+      desc = "fox-symdeps: inline data-dependent branch tags (▲, non-destructive)" },
+    { lhs = "<leader>du", hint = "use-lens", fn = toggle_lens,
+      desc = "fox-symdeps: use-lens (in-code tags)" },
+    { lhs = "<leader>dm", hint = "action menu", fn = function() vim.cmd("FoxSymdepsMenu") end,
+      desc = "fox-symdeps: action menu (context-filtered by tag [TYPE])" },
+    { lhs = "]u", hint = "next use", fn = function() require("fox-symdeps.highlight").next() end,
+      desc = "fox-symdeps: next use" },
+    { lhs = "[u", hint = "prev use", fn = function() require("fox-symdeps.highlight").prev() end,
+      desc = "fox-symdeps: prev use" },
+    -- panel tab flip from ANYWHERE (the panel's own H/L are buffer-local + collide with
+    -- bufferline; these are global so you can flip tracked symbols without leaving your code)
+    { lhs = "<leader>d[", hint = "panel prev tab", fn = function() require("fox-symdeps.panel").switch(-1) end,
+      desc = "fox-symdeps: panel prev tab" },
+    { lhs = "<leader>d]", hint = "panel next tab", fn = function() require("fox-symdeps.panel").switch(1) end,
+      desc = "fox-symdeps: panel next tab" },
+  }
+  for _, r in ipairs(M._keymaps) do
+    vim.keymap.set("n", r.lhs, r.fn, { desc = r.desc })
+  end
   local ok, wk = pcall(require, "which-key")
   if ok and wk.add then
     pcall(wk.add, { { "<leader>d", group = "symdeps" } })
   end
   if M.config.auto_panel then require("fox-symdeps.cockpit").toggle(true) end
+end
+
+--- "Open" help lines DERIVED from the keymap registry (fleet K4) — wrapped at ~96 cols.
+function M.keymap_help_lines()
+  local out, cur = {}, nil
+  for _, r in ipairs(M._keymaps or {}) do
+    local item = ("%s %s"):format(r.lhs, r.hint)
+    if not cur then
+      cur = "  Open    " .. item
+    elseif #cur + #item + 3 > 96 then
+      out[#out + 1] = cur
+      cur = "          " .. item
+    else
+      cur = cur .. " · " .. item
+    end
+  end
+  if cur then out[#out + 1] = cur end
+  return out
 end
 
 return M

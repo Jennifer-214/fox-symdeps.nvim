@@ -332,12 +332,14 @@ end
 
 -- `?` help: a readable float of every key + a glossary of what each section means (tooltips).
 function Hud:_help()
-  local lines = {
-    "",
-    "  Open    <leader>dd float · <leader>dD panel · <leader>dS browse structs · <leader>du use-lens",
-    "          <leader>dr roam · <leader>dw dashboard · <leader>dg straddle diagnostics · <leader>dl inline size lens",
-    "          <leader>da lock layout (static_assert) · <leader>dc always-on size chip (winbar)",
-    "          <leader>de source↔asm explorer (side-by-side, 1:1) · <leader>db inline data-dep branch tags",
+  -- "Open" lines DERIVE from the keymap registry (fleet K4 — this was one of the four
+  -- hand-copies, and it had drifted twice)
+  local lines = { "" }
+  local okk, fox = pcall(require, "fox-symdeps")
+  if okk and fox.keymap_help_lines then
+    vim.list_extend(lines, fox.keymap_help_lines())
+  end
+  vim.list_extend(lines, {
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
     "  Filter  /   filter the Consumers tree",
@@ -369,7 +371,7 @@ function Hud:_help()
     "    ▣ size-budget   struct is cache-residency gated (L1d / L2 tier)",
     "    ◆ Docs          curated [REFERENCE] refs — the ids that GOVERN the unit (m → Docs opens)",
     "",
-  }
+  })
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
