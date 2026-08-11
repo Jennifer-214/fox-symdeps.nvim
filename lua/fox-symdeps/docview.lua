@@ -93,19 +93,45 @@ local function open_float(site)
   })
 end
 
--- The entry point: resolve the enclosing unit's [REFERENCE] ids → float / chooser / refusal.
+-- FILE-header fallback (macros + file-scope): [FILE]/[MACRO] are LIGHT units (no span), so a
+-- cursor outside any closable unit — or inside one carrying no [REFERENCE] — falls back to
+-- the FILE banner's refs (the header region above the first closable opener).
+function M.file_header_ids(buf)
+  local nmod = require("fox-symdeps.nodemodel").scope_openers()
+  local n = math.min(vim.api.nvim_buf_line_count(buf), 400)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, n, false)
+  local stop = #lines
+  if nmod then
+    for i, l in ipairs(lines) do
+      local ty = l:match("//%s*%[(%u+)%]_%[")
+      if ty and nmod[ty] then stop = i - 1; break end
+    end
+  end
+  local head = {}
+  for i = 1, stop do head[i] = lines[i] end
+  return M.ref_ids(head)
+end
+
+-- The entry point: resolve the enclosing unit's [REFERENCE] ids → float / chooser / refusal;
+-- unit-first, FILE-header fallback (named when it fires).
 function M.open()
   local buf = vim.api.nvim_get_current_buf()
   local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
   local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
-  if not blk then
-    return vim.notify("fox-symdeps · not inside a tagged unit (docview reads [REFERENCE])",
-                      vim.log.levels.INFO)
+  local ids = {}
+  if blk then
+    local blines = vim.api.nvim_buf_get_lines(buf, blk.opener, blk.closer + 1, false)
+    ids = M.ref_ids(blines, row0 - blk.opener + 1)
   end
-  local lines = vim.api.nvim_buf_get_lines(buf, blk.opener, blk.closer + 1, false)
-  local ids = M.ref_ids(lines, row0 - blk.opener + 1)
   if #ids == 0 then
-    return vim.notify("fox-symdeps · no [REFERENCE] tags in " .. (blk.name or "this unit"),
+    ids = M.file_header_ids(buf)
+    if #ids > 0 and blk then
+      vim.notify("fox-symdeps · " .. (blk.name or "unit") ..
+                 " has no [REFERENCE] — showing the FILE header's", vim.log.levels.INFO)
+    end
+  end
+  if #ids == 0 then
+    return vim.notify("fox-symdeps · no [REFERENCE] tags here (unit or FILE header)",
                       vim.log.levels.INFO)
   end
   local file = vim.api.nvim_buf_get_name(buf)
@@ -134,8 +160,13 @@ function M.open()
     if #p.found == 1 then return open_float(p.found[1]) end
     local items = {}
     for _, s in ipairs(p.found) do
+      -- compact label: last two path segments only (full-path labels wrapped the chooser —
+      -- operator screenshot 2026-08-10); the float title carries file:line after opening
+      local segs = {}
+      for seg in s.file:gmatch("[^/]+") do segs[#segs + 1] = seg end
+      local short = (#segs >= 2) and (segs[#segs - 1] .. "/" .. segs[#segs]) or s.file
       items[#items + 1] = {
-        label = ("%s — %s:%d"):format(s.id, vim.fn.fnamemodify(s.file, ":~:."), s.line),
+        label = ("%s — %s:%d"):format(s.id, short, s.line),
         run = function() open_float(s) end,
       }
     end

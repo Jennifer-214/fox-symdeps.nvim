@@ -36,11 +36,14 @@ M.registry = {
       local ok, tc = pcall(require, "fox-symdeps.tagcontext")
       if not ok then return false end
       local blk = tc.enclosing_block(buf, row0)
-      if not blk then return false end
-      for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, blk.opener, blk.closer + 1, false)) do
-        if l:find("[REFERENCE]_", 1, true) then return true end
+      if blk then
+        for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, blk.opener, blk.closer + 1, false)) do
+          if l:find("[REFERENCE]_", 1, true) then return true end
+        end
       end
-      return false
+      -- FILE-header fallback (macros / file-scope / units without refs)
+      local okd, dv = pcall(require, "fox-symdeps.docview")
+      return okd and #dv.file_header_ids(buf) > 0
     end,
     run = function() require("fox-symdeps.docview").open() end },
   -- function
