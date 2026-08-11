@@ -45,9 +45,24 @@ function M.partition(rows)
   return { found = found, missing = missing }
 end
 
+-- PIN — the persistent role of the §6 HUD-vs-PANEL duality (operator ask 2026-08-10: "docs +
+-- code" side by side while working). A real RIGHTMOST vertical split, not a pinned float: a
+-- split participates in the layout (resizes with it, stacks multiple pins, closes like any
+-- window — :q), so persistence costs zero custom lifecycle code.
+function M.pin(site)
+  vim.cmd("botright vsplit")
+  local win = vim.api.nvim_get_current_win()
+  local buf = vim.fn.bufadd(site.file)
+  vim.fn.bufload(buf)
+  vim.api.nvim_win_set_buf(win, buf)
+  pcall(vim.api.nvim_win_set_cursor, win, { math.max(site.line, 1), 0 })
+  vim.wo[win].cursorline = true
+  vim.api.nvim_win_set_width(win, math.max(60, math.floor(vim.o.columns * 0.42)))
+end
+
 -- Float the REAL buffer of the defining doc beside the code (right edge), cursor on the
--- defining line — syntax, search, and jumps all work; q closes the float (buffer-local map
--- removed when the float closes).
+-- defining line — syntax, search, and jumps all work. q closes; p PROMOTES the float to the
+-- pinned split (both buffer-local maps removed when the float closes — incl. by promotion).
 local function open_float(site)
   local buf = vim.fn.bufadd(site.file)
   vim.fn.bufload(buf)
@@ -57,16 +72,24 @@ local function open_float(site)
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor", row = math.max(1, math.floor((H - h) / 2) - 1), col = W - w - 2,
     width = w, height = h, border = "rounded",
-    title = ("  %s — %s:%d "):format(site.id, vim.fn.fnamemodify(site.file, ":t"), site.line),
+    title = ("  %s — %s:%d · p=pin · q=close "):format(
+      site.id, vim.fn.fnamemodify(site.file, ":t"), site.line),
     title_pos = "left",
   })
   pcall(vim.api.nvim_win_set_cursor, win, { math.max(site.line, 1), 0 })
   vim.wo[win].cursorline = true
   vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
                  { buffer = buf, nowait = true, desc = "fox-symdeps: close doc float" })
+  vim.keymap.set("n", "p", function()
+    M.pin(site)
+    pcall(vim.api.nvim_win_close, win, true)   -- close AFTER pinning; WinClosed clears the maps
+  end, { buffer = buf, nowait = true, desc = "fox-symdeps: pin doc to a split" })
   vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win), once = true,
-    callback = function() pcall(vim.keymap.del, "n", "q", { buffer = buf }) end,
+    callback = function()
+      pcall(vim.keymap.del, "n", "q", { buffer = buf })
+      pcall(vim.keymap.del, "n", "p", { buffer = buf })
+    end,
   })
 end
 
