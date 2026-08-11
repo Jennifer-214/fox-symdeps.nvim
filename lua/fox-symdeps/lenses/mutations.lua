@@ -20,33 +20,37 @@ local function group_by_file(sites)
   return files
 end
 
+local M = {}
+
+-- Exported action body (fleet phase 2 / operator call: `m` is the MENU everywhere — who-writes
+-- is a registry row in actions.lua now, run via the menu and rendered into the invoking HUD).
+function M.who_writes(ctx, hud)
+  vim.notify("fox-symdeps · mutations: scanning…", vim.log.levels.INFO)
+  writers.for_symbol(ctx, function(res, state)
+    if state ~= "ok" or not res then
+      vim.notify("fox-symdeps · mutations: " .. tostring(state), vim.log.levels.WARN)
+    elseif #res.sites == 0 then
+      vim.notify(("fox-symdeps · %s: never written (%d reads) — read-only ✓"):format(ctx.symbol, res.reads),
+        vim.log.levels.INFO)
+    else
+      local names = {}
+      for w in pairs(res.writers) do names[#names + 1] = w end
+      table.sort(names)
+      local files = group_by_file(res.sites)
+      local count = 0
+      for _, f in ipairs(files) do count = count + f.count end
+      hud:set_section("mutations",
+        ("%s: %s  (%d writes · %d reads)"):format(LABEL, table.concat(names, ", "), #res.sites, res.reads),
+        { { label = "Written by", role = "writes", count = count, collapsed = false, files = files } }, "ok")
+      vim.notify(("fox-symdeps · %s: written by %s"):format(ctx.symbol, table.concat(names, ", ")), vim.log.levels.WARN)
+    end
+  end)
+end
+
 lens.define{
   name = "mutations",
   applies = function(ctx) return ctx ~= nil and (ctx.kind == "field" or ctx.kind == "symbol") end,
-  render = function(_, _) end, -- on-demand only
-  hints = { m = "mutations" },
-  actions = {
-    m = function(ctx, hud)
-      vim.notify("fox-symdeps · mutations: scanning…", vim.log.levels.INFO)
-      writers.for_symbol(ctx, function(res, state)
-        if state ~= "ok" or not res then
-          vim.notify("fox-symdeps · mutations: " .. tostring(state), vim.log.levels.WARN)
-        elseif #res.sites == 0 then
-          vim.notify(("fox-symdeps · %s: never written (%d reads) — read-only ✓"):format(ctx.symbol, res.reads),
-            vim.log.levels.INFO)
-        else
-          local names = {}
-          for w in pairs(res.writers) do names[#names + 1] = w end
-          table.sort(names)
-          local files = group_by_file(res.sites)
-          local count = 0
-          for _, f in ipairs(files) do count = count + f.count end
-          hud:set_section("mutations",
-            ("%s: %s  (%d writes · %d reads)"):format(LABEL, table.concat(names, ", "), #res.sites, res.reads),
-            { { label = "Written by", role = "writes", count = count, collapsed = false, files = files } }, "ok")
-          vim.notify(("fox-symdeps · %s: written by %s"):format(ctx.symbol, table.concat(names, ", ")), vim.log.levels.WARN)
-        end
-      end)
-    end,
-  },
+  render = function(_, _) end, -- on-demand via the menu row ("mutations" in actions.lua)
 }
+
+return M

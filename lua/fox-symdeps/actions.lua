@@ -27,6 +27,19 @@ M.registry = {
     run = function() require("fox-symdeps.panel").compare() end },
   { label = "Preview derived facts", all = true,
     run = function() vim.cmd("FoxSymdepsDerived") end },
+  -- HUD-context analysis rows (fleet phase 2 — these RENDER INTO the invoking HUD, so they
+  -- carry keep_stack; they replaced the lens key-binds that silently clobbered `m` and
+  -- board-`s` for months):
+  { id = "mutations", label = "Who writes — mutation sites for this field/symbol", all = true,
+    keep_stack = true,
+    when = function(ctx)
+      return ctx and ctx.hud ~= nil and (ctx.kind == "field" or ctx.kind == "symbol")
+    end,
+    run = function(ctx) require("fox-symdeps.lenses.mutations").who_writes(ctx, ctx.hud) end },
+  { id = "false-sharing", label = "False-sharing scan — disjoint writers on shared 64B lines", all = true,
+    keep_stack = true,
+    when = function(ctx) return ctx and ctx.hud ~= nil and ctx.kind ~= "function" end,
+    run = function(ctx) require("fox-symdeps.lenses.false_sharing").analyze(ctx, ctx.hud) end },
   { label = "Docs — [REFERENCE] → open the defining doc (float beside code)", all = true,
     -- context-gated (§6's rule): shown only when the enclosing unit actually carries the
     -- [REFERENCE] axis this affordance renders (§9's law). Takes the EXPLICIT ctx (fleet P2
@@ -102,8 +115,8 @@ function M.run(row, ctx)
       if ctx.line then pcall(vim.api.nvim_win_set_cursor, w, { ctx.line, ctx.col or 0 }) end
     end
   end
-  if ctx.collapse then pcall(ctx.collapse) end
-  row.run()
+  if ctx.collapse and not row.keep_stack then pcall(ctx.collapse) end
+  row.run(ctx)
 end
 
 -- Wrap registry rows for menu.open WITHOUT re-shaping them: run routes through M.run(ctx);

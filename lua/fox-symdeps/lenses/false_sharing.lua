@@ -42,35 +42,40 @@ local function build_tree(res)
   return tree
 end
 
+local M = {}
+
+-- Exported action body (fleet phase 2 / operator call: board-`s` stays COMPARE — the
+-- false-sharing scan is a registry row in actions.lua now, run via the menu (m) and rendered
+-- into the invoking HUD).
+function M.analyze(ctx, hud)
+  vim.notify("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
+  writers.for_struct(ctx, function(res, state)
+    if state ~= "ok" or not res then
+      local why
+      if state == "no_client" then
+        why = "clangd not attached"
+      elseif hud.layout and hud.layout.data and hud.layout.data.is_template then
+        -- templated struct: clangd gives no concrete field offsets until it's
+        -- instantiated, so field resolution comes back empty even ON the
+        -- definition. Don't blame the cursor position — name the real cause.
+        why = "templated struct — no concrete field offsets un-instantiated; put the cursor on a concrete Foo<N> use"
+      else
+        why = "couldn't resolve fields — put the cursor on the struct's DEFINITION (same limit as Layout/Fields)"
+      end
+      hud:set_message("false-sharing: " .. why, "warn") -- persists in the HUD, readable
+    elseif #res.risks == 0 then
+      hud:set_message("false-sharing: none on shared lines ✓", "info")
+    else
+      hud:set_section("false_sharing", LABEL .. "  (advisory — sizeof is fingerprinted)", build_tree(res), "ok")
+      hud:set_message(("false-sharing: %d risk(s) — advisory only"):format(#res.risks), "warn")
+    end
+  end)
+end
+
 lens.define{
   name = "false_sharing",
   applies = function(ctx) return ctx ~= nil and ctx.kind ~= "function" end,
-  render = function(_, hud) end, -- nothing on open; analysis is on-demand (below)
-  hints = { s = "false-sharing" }, -- shows in the HUD footer so `s` is discoverable
-  actions = {
-    s = function(ctx, hud)
-      vim.notify("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
-      writers.for_struct(ctx, function(res, state)
-        if state ~= "ok" or not res then
-          local why
-          if state == "no_client" then
-            why = "clangd not attached"
-          elseif hud.layout and hud.layout.data and hud.layout.data.is_template then
-            -- templated struct: clangd gives no concrete field offsets until it's
-            -- instantiated, so field resolution comes back empty even ON the
-            -- definition. Don't blame the cursor position — name the real cause.
-            why = "templated struct — no concrete field offsets un-instantiated; put the cursor on a concrete Foo<N> use"
-          else
-            why = "couldn't resolve fields — put the cursor on the struct's DEFINITION (same limit as Layout/Fields)"
-          end
-          hud:set_message("false-sharing (s): " .. why, "warn") -- persists in the HUD, readable
-        elseif #res.risks == 0 then
-          hud:set_message("false-sharing (s): none on shared lines ✓", "info")
-        else
-          hud:set_section("false_sharing", LABEL .. "  (advisory — sizeof is fingerprinted)", build_tree(res), "ok")
-          hud:set_message(("false-sharing (s): %d risk(s) — advisory only"):format(#res.risks), "warn")
-        end
-      end)
-    end,
-  },
+  render = function(_, hud) end, -- on-demand via the menu row ("false-sharing" in actions.lua)
 }
+
+return M

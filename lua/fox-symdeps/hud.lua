@@ -167,11 +167,37 @@ function Hud:set_trace(items, state)
   self:render()
 end
 
+-- Keys the HUD SURFACE owns — the base map + the board layer's keys (panel.lua L/H/x/s; s =
+-- compare, the operator's call). A lens may NOT shadow them: last-write-wins silently ate `m`
+-- (menu) and board-`s` for months (fleet K1/D4/D5); a refused bind warns ONCE and points at the
+-- menu row instead of dying silently.
+local RESERVED_KEYS = {
+  j = true, k = true, h = true, l = true, q = true, m = true, r = true, w = true, a = true,
+  y = true, Q = true, ["/"] = true, ["?"] = true, ["<CR>"] = true, ["<Esc>"] = true,
+  ["<C-d>"] = true, ["<C-u>"] = true, ["<Down>"] = true, ["<Up>"] = true,
+  ["<Left>"] = true, ["<Right>"] = true,
+  i = true, o = true, x = true, dd = true, p = true,   -- the no-op'd guard set
+  L = true, H = true, s = true,                        -- board layer (panel.lua)
+}
+
 -- Register an on-demand action key (e.g. a provider's break-check on 'b'). Buffer-local so it
--- only lives while the HUD is open; providers call this once their section is ready.
+-- only lives while the HUD is open; providers call this once their section is ready. Reserved
+-- keys are REFUSED (collision assert — fleet phase 2); lens binds are tracked so Hud:reset can
+-- unbind them (stale-ctx closures died with this, fleet P5/D9).
 function Hud:map_action(key, fn, desc)
   if self.closed or not self.buf or not vim.api.nvim_buf_is_valid(self.buf) then return end
+  if RESERVED_KEYS[key] then
+    self._warned_keys = self._warned_keys or {}
+    if not self._warned_keys[key] then
+      self._warned_keys[key] = true
+      vim.notify(("fox-symdeps · lens key %q is surface-reserved — reach the action via the menu (m)")
+                 :format(key), vim.log.levels.WARN)
+    end
+    return
+  end
   vim.keymap.set("n", key, function() fn() end, { buffer = self.buf, nowait = true, silent = true })
+  self._lens_keys = self._lens_keys or {}
+  self._lens_keys[key] = true
   if desc then -- register a footer hint (dedupe by key) so lens keys are discoverable inline
     self.action_hints = self.action_hints or {}
     for _, h in ipairs(self.action_hints) do if h.key == key then return end end
@@ -190,6 +216,12 @@ function Hud:reset(ctx)
   self.calls = nil -- outbound calls (functions); refilled by set_calls
   self.sections = {}
   self.action_hints = {} -- lens hints re-register when providers re-run on re-inspect
+  -- unbind lens keys (fleet P5/D9: a closure bound for the PREVIOUS card kept firing against
+  -- its stale ctx when the new card's lens didn't re-bind the key; providers re-bind fresh)
+  for key in pairs(self._lens_keys or {}) do
+    pcall(vim.keymap.del, "n", key, { buffer = self.buf })
+  end
+  self._lens_keys = {}
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
   self.uses = nil -- upstream deps; cleared on struct switch, refilled by set_uses
   self.includers = nil -- files that #include the header; cleared on switch, refilled by set_includers
@@ -311,7 +343,7 @@ function Hud:_help()
     "  Filter  /   filter the Consumers tree",
     "",
     "  Actions",
-    "    s  false-sharing scan          m  who writes this field",
+    "    m  action menu — per-unit ops (who-writes · false-sharing · docs · write/lock …)",
     "    t  cache-line access density   (distinct 64B lines each fn touches)",
     "    b  break-check (what broke)     c  change-impact (size → downstream)",
     "    n  doc mentions (notes)         a  asm flag-diff (functions)",
@@ -867,10 +899,12 @@ function Hud:_menu()
   -- this scratch buffer; rows pass through VERBATIM (menu_rows __index — writes/tier icons ride
   -- every invoker identically); collapse = the operator's layer-stack rule (an opened item
   -- closes menu + HUD; canceling the menu keeps the HUD alive via the BufLeave guard).
-  local run_ctx = {
-    bufnr = ctx.bufnr, line = ctx.line, col = ctx.col,
+  -- Full tracked ctx + the HUD handle (rows that render INTO the HUD — who-writes,
+  -- false-sharing — need it and set keep_stack) + the layer-stack collapse chain.
+  local run_ctx = vim.tbl_extend("force", {}, ctx, {
+    hud = self,
     collapse = function() self:close() end,
-  }
+  })
   -- ONE TYPE SPACE (fleet P3; operator screenshot 2026-08-10: a struct's HUD resolved as
   -- treesitter-kind TYPE and showed only the universal rows): resolve the unit's TAG type from
   -- the SOURCE buffer exactly like the dm palette does — the tag block is the authority; the
