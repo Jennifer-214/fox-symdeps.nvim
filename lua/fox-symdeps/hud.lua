@@ -871,9 +871,23 @@ function Hud:_menu()
     bufnr = ctx.bufnr, line = ctx.line, col = ctx.col,
     collapse = function() self:close() end,
   }
-  local acts = actions.for_type((ctx.kind or ""):lower(), run_ctx)
+  -- ONE TYPE SPACE (fleet P3; operator screenshot 2026-08-10: a struct's HUD resolved as
+  -- treesitter-kind TYPE and showed only the universal rows): resolve the unit's TAG type from
+  -- the SOURCE buffer exactly like the dm palette does — the tag block is the authority; the
+  -- treesitter kind is only the fallback for unconverted files.
+  local t, title = (ctx.kind or ""):lower(), ("%s %s"):format((ctx.kind or "unit"):upper(), ctx.symbol)
+  do
+    local ok, tc = pcall(require, "fox-symdeps.tagcontext")
+    local blk = ok and ctx.bufnr and ctx.line
+                and tc.enclosing_block(ctx.bufnr, ctx.line - 1) or nil
+    if blk and blk.type then
+      t = blk.type:lower()
+      title = ("%s %s"):format(blk.type, blk.name or ctx.symbol)
+    end
+  end
+  local acts = actions.for_type(t, run_ctx)
   require("fox-symdeps.menu").open(actions.menu_rows(acts, run_ctx), {
-    title = ("%s %s"):format((ctx.kind or "unit"):upper(), ctx.symbol),
+    title = title,
     palette = self.palette,
     anchor_win = self.win, -- the HUD's own menu docks to the HUD (operator: "attached to the hud")
   })
