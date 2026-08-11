@@ -239,7 +239,12 @@ function M.setup(opts)
       return require("fox-symdeps.nodemodel").heal(function() vim.cmd("FoxSymdepsMenu") end)
     end
     local actions = require("fox-symdeps.actions")
-    local ctx = { bufnr = buf, line = vim.api.nvim_win_get_cursor(0)[1] }   -- explicit ctx (fleet P2)
+    -- explicit ctx (fleet P2), ENRICHED with the treesitter kind/symbol so the analysis rows
+    -- (who-writes / false-sharing) gate IDENTICALLY from dm (operator: one registry, dm-equal)
+    local ctx = { bufnr = buf, line = vim.api.nvim_win_get_cursor(0)[1] }
+    local okc, cmod = pcall(require, "fox-symdeps.context")
+    local uc = okc and cmod.under_cursor() or nil
+    if uc then ctx.kind, ctx.symbol, ctx.col = uc.kind, uc.symbol, uc.col end
     local acts = actions.for_type(blk and blk.type:lower() or "", ctx)
     local anchor = require("fox-symdeps.panel").win() or require("fox-symdeps.followcard").win()
     require("fox-symdeps.menu").open(actions.menu_rows(acts, ctx), {

@@ -27,19 +27,22 @@ M.registry = {
     run = function() require("fox-symdeps.panel").compare() end },
   { label = "Preview derived facts", all = true,
     run = function() vim.cmd("FoxSymdepsDerived") end },
-  -- HUD-context analysis rows (fleet phase 2 — these RENDER INTO the invoking HUD, so they
-  -- carry keep_stack; they replaced the lens key-binds that silently clobbered `m` and
-  -- board-`s` for months):
+  -- Analysis rows (fleet phase 2; dm-EQUAL per the operator's one-registry call — these render
+  -- INTO the invoking HUD when one is open [keep_stack], and fall back to verdict NOTIFIES from
+  -- dm with a pointer at the full tree; they replaced the lens key-binds that silently
+  -- clobbered `m` and board-`s` for months):
   { id = "mutations", label = "Who writes — mutation sites for this field/symbol", all = true,
     keep_stack = true,
-    when = function(ctx)
-      return ctx and ctx.hud ~= nil and (ctx.kind == "field" or ctx.kind == "symbol")
-    end,
-    run = function(ctx) require("fox-symdeps.lenses.mutations").who_writes(ctx, ctx.hud) end },
+    when = function(ctx) return ctx and (ctx.kind == "field" or ctx.kind == "symbol") end,
+    run = function(ctx)
+      require("fox-symdeps.lenses.mutations").who_writes(ctx, M._hud_or_shim(ctx))
+    end },
   { id = "false-sharing", label = "False-sharing scan — disjoint writers on shared 64B lines", all = true,
     keep_stack = true,
-    when = function(ctx) return ctx and ctx.hud ~= nil and ctx.kind ~= "function" end,
-    run = function(ctx) require("fox-symdeps.lenses.false_sharing").analyze(ctx, ctx.hud) end },
+    when = function(ctx) return ctx and ctx.kind ~= nil and ctx.kind ~= "function" end,
+    run = function(ctx)
+      require("fox-symdeps.lenses.false_sharing").analyze(ctx, M._hud_or_shim(ctx))
+    end },
   { label = "Docs — [REFERENCE] → open the defining doc (float beside code)", all = true,
     -- context-gated (§6's rule): shown only when the enclosing unit actually carries the
     -- [REFERENCE] axis this affordance renders (§9's law). Takes the EXPLICIT ctx (fleet P2
@@ -85,6 +88,23 @@ M.registry = {
 -- what's valid") — evaluated against the EXPLICIT invoker ctx (fleet P2: the HUD invokes from
 -- its scratch buffer, so implicit current-window gates lied there). pcall-safe: a broken gate
 -- hides its item rather than breaking the menu.
+-- dm has no HUD open — the analysis rows still run there (one registry, EVERY invoker equal;
+-- operator call 2026-08-10): verdict headlines surface via notify; the jumpable section tree
+-- needs a HUD, and the shim SAYS so instead of silently dropping it.
+function M._hud_or_shim(ctx)
+  if ctx and ctx.hud then return ctx.hud end
+  return {
+    set_message = function(_, msg, lvl)
+      vim.notify("fox-symdeps · " .. msg,
+                 lvl == "warn" and vim.log.levels.WARN or vim.log.levels.INFO)
+    end,
+    set_section = function(_, _, header)
+      vim.notify("fox-symdeps · " .. tostring(header)
+                 .. "  (open the HUD — <leader>dd — for the jumpable tree)", vim.log.levels.INFO)
+    end,
+  }
+end
+
 -- One-time registration validation (fleet K3): every `types` key must be a REAL unit type
 -- from the grammar payload — an unknown key can never match, so it warns (dev-time) instead
 -- of silently gating a row out of existence. Runs at the first for_type once the model is up.

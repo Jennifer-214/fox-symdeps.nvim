@@ -248,8 +248,8 @@ function Hud:_window()
       relative = "cursor",
       row = 1,
       col = 2,
-      width = 72,
-      height = 28,
+      width = math.min(72, math.max(40, vim.o.columns - 6)),   -- editor-clamped (fleet S3)
+      height = math.min(28, math.max(10, vim.o.lines - 4)),
       style = "minimal",
       border = "rounded",
       title = { { " " .. self.ctx.symbol .. " ", "FoxSymdepsTitle" } },
@@ -346,7 +346,7 @@ function Hud:_help()
     "    m  action menu — per-unit ops (who-writes · false-sharing · docs · write/lock …)",
     "    t  cache-line access density   (distinct 64B lines each fn touches)",
     "    b  break-check (what broke)     c  change-impact (size → downstream)",
-    "    n  doc mentions (notes)         a  asm flag-diff (functions)",
+    "    a  asm flag-diff (functions)",
     "    w  width-literal scan           r  refresh (re-run analysis)",
     "    Q  rows → quickfix              y  yank readout",
     "    q / <Esc>  close",
@@ -367,7 +367,7 @@ function Hud:_help()
     "    ◈ density       cache-line working-set per fn (t · hot & slow)",
     "    ◈ hot-path      latency-critical · compiled instruction budget",
     "    ▣ size-budget   struct is cache-residency gated (L1d / L2 tier)",
-    "    ◇ Written/Docs  on-demand — m: who writes a field · n: doc mentions",
+    "    ◆ Docs          curated [REFERENCE] refs — the ids that GOVERN the unit (m → Docs opens)",
     "",
   }
   local buf = vim.api.nvim_create_buf(false, true)

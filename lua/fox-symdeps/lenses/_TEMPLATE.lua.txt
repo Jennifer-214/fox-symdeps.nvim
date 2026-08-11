@@ -26,7 +26,7 @@
 --   hud:map_action(key, fn)   bind a single letter in the HUD to fn(). RESERVED keys are
 --                             REFUSED with a warning (see RESERVED_KEYS in hud.lua — the base
 --                             map q Q y w a m r / ? + nav + noops + board L H x s); lens keys
---                             in use today: t n b c. Prefer a MENU ROW (actions.lua) over a
+--                             in use today: t b c. Prefer a MENU ROW (actions.lua) over a
 --                             key for anything not high-frequency.
 --
 local lens = require("fox-symdeps.lens")
