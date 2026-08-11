@@ -45,6 +45,9 @@ function M.open(items, opts)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
+  -- LAYER-STACK marker (operator rule 2026-08-10: opened-item > menu > HUD): ancestors check
+  -- this to keep themselves alive while their child menu is open (hud float BufLeave guard).
+  vim.b[buf].fox_symdeps_menu = true
 
   local place = M._placement(opts.anchor_win)
   place.width, place.height = width, #lines

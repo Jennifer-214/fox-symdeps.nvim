@@ -29,10 +29,13 @@ M.registry = {
     run = function() vim.cmd("FoxSymdepsDerived") end },
   { label = "Docs — [REFERENCE] → open the defining doc (float beside code)", all = true,
     -- context-gated (§6's rule): shown only when the enclosing unit actually carries the
-    -- [REFERENCE] axis this affordance renders (§9's law)
-    when = function()
-      local buf = vim.api.nvim_get_current_buf()
-      local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
+    -- [REFERENCE] axis this affordance renders (§9's law). Takes the EXPLICIT ctx (fleet P2
+    -- fix): evaluated from the SOURCE buffer the invoker names — never the current window
+    -- (the HUD invokes from its own scratch buffer, where this gate used to scan HUD text).
+    when = function(ctx)
+      local buf = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
+      local row0 = (ctx and ctx.line and (ctx.line - 1))
+                   or (vim.api.nvim_win_get_cursor(0)[1] - 1)
       local ok, tc = pcall(require, "fox-symdeps.tagcontext")
       if not ok then return false end
       local blk = tc.enclosing_block(buf, row0)
@@ -65,22 +68,53 @@ M.registry = {
 }
 
 -- filter the registry for a lowercased tag type; "" (not in a block) → the universal actions only.
--- An optional per-item `when()` gate adds RUNTIME context-gating (§6: "the menu shows only what's
--- valid") — e.g. compare only lists once the board holds 2+ cards. pcall-safe: a broken gate hides
--- its item rather than breaking the menu.
-function M.for_type(t)
+-- An optional per-item `when(ctx)` gate adds RUNTIME context-gating (§6: "the menu shows only
+-- what's valid") — evaluated against the EXPLICIT invoker ctx (fleet P2: the HUD invokes from
+-- its scratch buffer, so implicit current-window gates lied there). pcall-safe: a broken gate
+-- hides its item rather than breaking the menu.
+function M.for_type(t, ctx)
   local out = {}
   for _, a in ipairs(M.registry) do
     if a.all or (a.types and a.types[t]) then
       local visible = true
       if a.when then
-        local ok, v = pcall(a.when)
+        local ok, v = pcall(a.when, ctx)
         visible = ok and v or false
       end
       if visible then out[#out + 1] = a end
     end
   end
   return out
+end
+
+-- Central runner (fleet P1): restore the SOURCE window/cursor from the explicit ctx — the dance
+-- the HUD wrapper used to hand-roll by RE-SHAPING rows (which dropped `writes` and every future
+-- field; moving it here makes re-shaped copies structurally unnecessary) — then apply the
+-- operator's LAYER-STACK rule (2026-08-10: "opened item > menu > HUD; when the top level item
+-- opens, it closes the other 2"): ctx.collapse is the invoker's ancestor-close chain, called
+-- before the action opens its own surface.
+function M.run(row, ctx)
+  ctx = ctx or {}
+  if ctx.bufnr then
+    local w = vim.fn.bufwinid(ctx.bufnr)
+    if w ~= -1 then
+      pcall(vim.api.nvim_set_current_win, w)
+      if ctx.line then pcall(vim.api.nvim_win_set_cursor, w, { ctx.line, ctx.col or 0 }) end
+    end
+  end
+  if ctx.collapse then pcall(ctx.collapse) end
+  row.run()
+end
+
+-- Wrap registry rows for menu.open WITHOUT re-shaping them: run routes through M.run(ctx);
+-- every other field (label, writes, …) reads through to the registry row via __index, so the
+-- renderer sees the SAME item shape from every invoker — identical popups by construction.
+function M.menu_rows(acts, ctx)
+  local rows = {}
+  for _, a in ipairs(acts) do
+    rows[#rows + 1] = setmetatable({ run = function() M.run(a, ctx) end }, { __index = a })
+  end
+  return rows
 end
 
 return M

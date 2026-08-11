@@ -238,9 +238,11 @@ function M.setup(opts)
     if err == "no-model" then -- foxtag unavailable → one-keypress heal, then re-open the menu
       return require("fox-symdeps.nodemodel").heal(function() vim.cmd("FoxSymdepsMenu") end)
     end
-    local acts = require("fox-symdeps.actions").for_type(blk and blk.type:lower() or "")
+    local actions = require("fox-symdeps.actions")
+    local ctx = { bufnr = buf, line = vim.api.nvim_win_get_cursor(0)[1] }   -- explicit ctx (fleet P2)
+    local acts = actions.for_type(blk and blk.type:lower() or "", ctx)
     local anchor = require("fox-symdeps.panel").win() or require("fox-symdeps.followcard").win()
-    require("fox-symdeps.menu").open(acts, {
+    require("fox-symdeps.menu").open(actions.menu_rows(acts, ctx), {
       title = blk and ("%s %s"):format(blk.type, blk.name) or "fox-symdeps",
       palette = M.config.palette,
       anchor_win = anchor, -- dock to the open board/follow card (sub-panel); cursor otherwise

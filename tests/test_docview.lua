@@ -55,5 +55,17 @@ ok(#r.resolve == 2 and r.resolve[1] == "branchless-dispatch-discipline.md"
    "route: doc-shaped → --resolve (.md appended when absent)")
 ok(#r.skipped == 1 and r.skipped[1]:match("^URL:") ~= nil, "route: free-form skipped, NAMED")
 
+-- recency sort (operator rule): prefix-grouped, newest (highest number) first within a group
+local sorted = D.sort_found({
+  { id = "D-97",  file = "/x", line = 1 },
+  { id = "H4",    file = "/x", line = 1 },
+  { id = "D-125", file = "/x", line = 1 },
+  { id = "H12",   file = "/x", line = 1 },
+  { id = "D-104", file = "/x", line = 1 },
+})
+ok(sorted[1].id == "D-125" and sorted[2].id == "D-104" and sorted[3].id == "D-97",
+   "sort: decisions newest-first")
+ok(sorted[4].id == "H12" and sorted[5].id == "H4", "sort: groups stay together, newest-first within")
+
 io.write(("docview: %d pass, %d fail\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

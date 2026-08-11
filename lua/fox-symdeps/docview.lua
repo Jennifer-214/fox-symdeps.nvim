@@ -59,6 +59,22 @@ function M.route(entries)
   return r
 end
 
+-- pure: RECENCY sort for the chooser (operator rule 2026-08-10, renderer-level): group by id
+-- prefix, NEWEST (highest number) first within a group — for the namespaces where numbering IS
+-- chronology (D/TECH_DEBT/PARITY/Class); no-digit doc names fall back to name order.
+function M.sort_found(found)
+  table.sort(found, function(a, b)
+    local ap = a.id:gsub("%d.*$", "")
+    local bp = b.id:gsub("%d.*$", "")
+    local an = tonumber(a.id:match("(%d+)")) or -1
+    local bn = tonumber(b.id:match("(%d+)")) or -1
+    if ap ~= bp then return ap < bp end
+    if an ~= bn then return an > bn end
+    return a.id < b.id
+  end)
+  return found
+end
+
 -- pure: envelope rows → { found = { {id,file,line} … }, missing = { id … } }. A row set with
 -- BOTH is rendered as float(s) + a named warning — the missing ids are never silently dropped.
 function M.partition(rows)
@@ -112,9 +128,19 @@ local function open_float(site)
     M.pin(site)
     pcall(vim.api.nvim_win_close, win, true)   -- close AFTER pinning; WinClosed clears the maps
   end, { buffer = buf, nowait = true, desc = "fox-symdeps: pin doc to a split" })
+  -- TRANSIENT-LENS semantics (operator §11(v), 2026-08-10): leaving the float dismisses it —
+  -- directional window-nav skips floats, so a survive-on-leave float becomes an unreachable
+  -- orphan; KEEPING the doc is what p-pin exists for (a split IS hjkl-navigable).
+  local dismiss = vim.api.nvim_create_autocmd("WinLeave", {
+    callback = function()
+      if vim.api.nvim_get_current_win() ~= win then return end
+      vim.schedule(function() pcall(vim.api.nvim_win_close, win, true) end)
+    end,
+  })
   vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win), once = true,
     callback = function()
+      pcall(vim.api.nvim_del_autocmd, dismiss)
       pcall(vim.keymap.del, "n", "q", { buffer = buf })
       pcall(vim.keymap.del, "n", "p", { buffer = buf })
     end,
@@ -192,6 +218,7 @@ function M.open()
     end
     if #found == 0 then return end                 -- refusals named above; never a blank float
     if #found == 1 then return open_float(found[1]) end
+    M.sort_found(found)
     local items = {}
     for _, s in ipairs(found) do
       -- compact label: last two path segments (full-path labels wrapped the chooser);
@@ -204,7 +231,11 @@ function M.open()
         run = function() open_float(s) end,
       }
     end
-    require("fox-symdeps.menu").open(items, { title = "[REFERENCE] → defining site" })
+    local pal_ok, fox = pcall(require, "fox-symdeps")
+    require("fox-symdeps.menu").open(items, {
+      title = "[REFERENCE] → defining site",
+      palette = pal_ok and fox.config and fox.config.palette or nil,   -- family styling (fleet P6/S6)
+    })
   end
   local function done_one() pending = pending - 1; if pending == 0 then finish() end end
 

@@ -270,10 +270,20 @@ function Hud:_window()
     map(k, function() end)
   end
   if self.mode == "float" then
+    -- LAYER-STACK guard (operator 2026-08-10: "opened item > menu > HUD"): leaving INTO the
+    -- HUD's own child menu keeps the HUD alive (canceling the menu returns here); any other
+    -- departure dismisses the float. Scheduled so the destination buffer has settled; the
+    -- autocmd is buffer-scoped, so it dies with the HUD buffer on close (no once=true — a
+    -- skipped fire must not consume the guard).
     vim.api.nvim_create_autocmd("BufLeave", {
       buffer = self.buf,
-      once = true,
-      callback = function() self:close() end,
+      callback = function()
+        vim.schedule(function()
+          local b = vim.api.nvim_get_current_buf()
+          if vim.b[b] and vim.b[b].fox_symdeps_menu then return end
+          self:close()
+        end)
+      end,
     })
   end
 end
@@ -852,19 +862,17 @@ end
 function Hud:_menu()
   local ctx = self.ctx
   if not ctx then return end
-  local acts = require("fox-symdeps.actions").for_type((ctx.kind or ""):lower())
-  local wrapped = {}
-  for _, a in ipairs(acts) do
-    wrapped[#wrapped + 1] = { label = a.label, run = function()
-      local w = vim.fn.bufwinid(ctx.bufnr)
-      if w ~= -1 then
-        pcall(vim.api.nvim_set_current_win, w)
-        pcall(vim.api.nvim_win_set_cursor, w, { ctx.line, ctx.col })
-      end
-      a.run()
-    end }
-  end
-  require("fox-symdeps.menu").open(wrapped, {
+  local actions = require("fox-symdeps.actions")
+  -- Explicit invoker ctx (fleet P1/P2): gates evaluate against the TRACKED SOURCE buffer, never
+  -- this scratch buffer; rows pass through VERBATIM (menu_rows __index — writes/tier icons ride
+  -- every invoker identically); collapse = the operator's layer-stack rule (an opened item
+  -- closes menu + HUD; canceling the menu keeps the HUD alive via the BufLeave guard).
+  local run_ctx = {
+    bufnr = ctx.bufnr, line = ctx.line, col = ctx.col,
+    collapse = function() self:close() end,
+  }
+  local acts = actions.for_type((ctx.kind or ""):lower(), run_ctx)
+  require("fox-symdeps.menu").open(actions.menu_rows(acts, run_ctx), {
     title = ("%s %s"):format((ctx.kind or "unit"):upper(), ctx.symbol),
     palette = self.palette,
     anchor_win = self.win, -- the HUD's own menu docks to the HUD (operator: "attached to the hud")
