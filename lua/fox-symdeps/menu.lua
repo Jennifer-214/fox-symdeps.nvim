@@ -26,7 +26,7 @@ end
 function M.open(items, opts)
   opts = opts or {}
   if not items or #items == 0 then
-    return vim.notify("fox-symdeps · no actions for this unit", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · no actions for this unit", vim.log.levels.INFO)
   end
   local lines, width = {}, (opts.title and #opts.title + 6 or 16)
   local any_writes = false

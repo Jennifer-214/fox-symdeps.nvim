@@ -30,7 +30,7 @@ lens.define{
   hints = { t = "lines-touched" },
   actions = {
     t = function(ctx, hud)
-      vim.notify("fox-symdeps · access density: analyzing…", vim.log.levels.INFO)
+      require("fox-symdeps.ui").notify_raw("fox-symdeps · access density: analyzing…", vim.log.levels.INFO)
       writers.for_struct(ctx, function(res, state)
         if state ~= "ok" or not res then
           local why = (state == "no_client") and "clangd not attached"

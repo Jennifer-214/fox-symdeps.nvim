@@ -16,7 +16,7 @@ local function load_dir(dir)
     if t == "file" and name:match("%.lua$") then
       local ok, err = pcall(dofile, expanded .. "/" .. name)
       if ok then loaded = loaded + 1
-      else vim.notify(("fox-symdeps pack · %s failed: %s"):format(name, err), vim.log.levels.WARN) end
+      else require("fox-symdeps.ui").notify_raw(("fox-symdeps pack · %s failed: %s"):format(name, err), vim.log.levels.WARN) end
     end
   end
   return loaded

@@ -37,7 +37,7 @@ function M.toggle(palette)
     if not require("fox-symdeps.nodemodel").available() then
       return require("fox-symdeps.nodemodel").heal(function() M.toggle(S.palette) end)
     end
-    return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol) to follow",
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · put the cursor in a tagged unit (or on a symbol) to follow",
       vim.log.levels.INFO)
   end
 

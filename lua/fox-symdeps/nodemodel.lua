@@ -284,21 +284,21 @@ function M.heal(retry)
   local root = bin and root_of(bin) or nil
   local build = root and (root .. "/tools/foxtag/build.sh") or nil
   if not build or vim.fn.filereadable(build) ~= 1 then
-    return vim.notify(prompt:gsub("%?$", "") .. " — run: bash tools/foxtag/build.sh", vim.log.levels.WARN)
+    return require("fox-symdeps.ui").notify_raw(prompt:gsub("%?$", "") .. " — run: bash tools/foxtag/build.sh", vim.log.levels.WARN)
   end
   vim.ui.select({ "Build now", "Not now" }, { prompt = prompt }, function(choice)
     if choice ~= "Build now" then return end
-    vim.notify("fox-symdeps · building foxtag…", vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw("fox-symdeps · building foxtag…", vim.log.levels.INFO)
     require("fox-symdeps.runner").run({ "bash", build }, root, function(lines)
       if lines == nil then
-        return vim.notify("fox-symdeps · foxtag build FAILED — run `bash tools/foxtag/build.sh` to see why",
+        return require("fox-symdeps.ui").notify_raw("fox-symdeps · foxtag build FAILED — run `bash tools/foxtag/build.sh` to see why",
           vim.log.levels.ERROR)
       end
       M.refresh(function(m)
         if not m then
-          return vim.notify("fox-symdeps · built, but the node-model still won't load", vim.log.levels.ERROR)
+          return require("fox-symdeps.ui").notify_raw("fox-symdeps · built, but the node-model still won't load", vim.log.levels.ERROR)
         end
-        vim.notify(("fox-symdeps · foxtag rebuilt · node-model refreshed (%d types)"):format(m.meta.count),
+        require("fox-symdeps.ui").notify_raw(("fox-symdeps · foxtag rebuilt · node-model refreshed (%d types)"):format(m.meta.count),
           vim.log.levels.INFO)
         if type(retry) == "function" then pcall(retry) end
       end)

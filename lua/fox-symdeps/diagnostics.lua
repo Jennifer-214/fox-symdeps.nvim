@@ -99,7 +99,7 @@ function M.toggle()
     end
     by_buf = {}
   end
-  vim.notify("fox-symdeps · straddle diagnostics " ..
+  require("fox-symdeps.ui").notify_raw("fox-symdeps · straddle diagnostics " ..
     (M.enabled and "ON (inspect a struct to populate)" or "off"), vim.log.levels.INFO)
 end
 

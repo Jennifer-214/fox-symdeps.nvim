@@ -49,7 +49,7 @@ function M.toggle()
       if vim.api.nvim_buf_is_valid(b) then vim.api.nvim_buf_clear_namespace(b, NS, 0, -1) end
     end
   end
-  vim.notify("fox-symdeps · ambient layout lens " .. (M.enabled and "ON (rest on a struct)" or "off"),
+  require("fox-symdeps.ui").notify_raw("fox-symdeps · ambient layout lens " .. (M.enabled and "ON (rest on a struct)" or "off"),
     vim.log.levels.INFO)
 end
 

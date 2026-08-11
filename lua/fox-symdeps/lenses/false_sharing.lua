@@ -48,7 +48,7 @@ local M = {}
 -- false-sharing scan is a registry row in actions.lua now, run via the menu (m) and rendered
 -- into the invoking HUD).
 function M.analyze(ctx, hud)
-  vim.notify("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw("fox-symdeps · false-sharing: analyzing…", vim.log.levels.INFO)
   writers.for_struct(ctx, function(res, state)
     if state ~= "ok" or not res then
       local why

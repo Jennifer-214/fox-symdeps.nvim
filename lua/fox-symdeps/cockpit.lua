@@ -37,7 +37,7 @@ function M.toggle(from_setup)
     if require("fox-symdeps.followcard").is_open() then require("fox-symdeps.followcard").close() end
   end
   if not from_setup then
-    vim.notify("fox-symdeps · cockpit " ..
+    require("fox-symdeps.ui").notify_raw("fox-symdeps · cockpit " ..
       (M.enabled and "ON (follow card auto-docks on C++ buffers)" or "off"), vim.log.levels.INFO)
   end
 end

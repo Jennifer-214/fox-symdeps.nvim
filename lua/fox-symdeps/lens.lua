@@ -14,7 +14,7 @@ function M.define(spec)
     local ok, err = pcall(spec.render, ctx, hud)
     if not ok then
       hud:set_section(spec.name, (spec.name or "lens") .. " · error", {}, "ok")
-      vim.notify(("fox-symdeps lens %q: %s"):format(spec.name or "?", err), vim.log.levels.WARN)
+      require("fox-symdeps.ui").notify_raw(("fox-symdeps lens %q: %s"):format(spec.name or "?", err), vim.log.levels.WARN)
       return
     end
     for key, fn in pairs(spec.actions or {}) do

@@ -316,7 +316,7 @@ function Dash:_activate()
   local loc = it.loc
   if not loc and it.struct then loc = self:_resolve_struct(it.struct) end
   if not loc then
-    return vim.notify("fox-symdeps · couldn't locate a definition to jump to", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · couldn't locate a definition to jump to", vim.log.levels.INFO)
   end
   local target = self:_code_win()
   self:close()

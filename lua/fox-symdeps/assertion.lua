@@ -43,7 +43,7 @@ end
 function M.insert()
   local ctx = require("fox-symdeps.context").under_cursor()
   if not ctx or ctx.kind == "function" then
-    return vim.notify("fox-symdeps · put the cursor on a struct/type to lock its layout", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · put the cursor on a struct/type to lock its layout", vim.log.levels.INFO)
   end
   local bufnr = vim.api.nvim_get_current_buf()
   local cur = vim.api.nvim_win_get_cursor(0)
@@ -57,7 +57,7 @@ function M.insert()
       local msg = (data and data.is_template)
         and "templated type — put the cursor on a concrete Foo<N> use, then lock that"
         or "size unavailable — needs clangd + compile_commands.json + cursor on a type"
-      return vim.notify("fox-symdeps · " .. msg, vim.log.levels.WARN)
+      return require("fox-symdeps.ui").notify_raw("fox-symdeps · " .. msg, vim.log.levels.WARN)
     end
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
     -- a probed layout is for an exact instantiation (`ExecutionCore<64>`, possibly substituted
@@ -66,7 +66,7 @@ function M.insert()
     local target = data.spec or ctx.symbol
     local line = M.line(target, data.size, data.align, indent)
     vim.api.nvim_buf_set_lines(bufnr, at, at, false, { line })
-    vim.notify(("fox-symdeps · locked %s = %d B%s%s → static_assert inserted (u to undo)"):format(
+    require("fox-symdeps.ui").notify_raw(("fox-symdeps · locked %s = %d B%s%s → static_assert inserted (u to undo)"):format(
       target, data.size, data.align and (" · align " .. data.align) or "",
       data.computed_for and (" · @ " .. data.computed_for) or ""), vim.log.levels.INFO)
   end)

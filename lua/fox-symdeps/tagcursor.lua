@@ -124,9 +124,9 @@ end
 vim.api.nvim_create_user_command("FoxUnit", function()
   local u = M.get()
   if u then
-    vim.notify(M.statusline() .. ("  (%d–%d)"):format(u.open_line, u.close_line))
+    require("fox-symdeps.ui").notify_raw(M.statusline() .. ("  (%d–%d)"):format(u.open_line, u.close_line))
   else
-    vim.notify("[fox-symdeps] cursor is not inside a tagged unit", vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw("[fox-symdeps] cursor is not inside a tagged unit", vim.log.levels.INFO)
   end
 end, { desc = "Show the enclosing tagged unit at the cursor" })
 

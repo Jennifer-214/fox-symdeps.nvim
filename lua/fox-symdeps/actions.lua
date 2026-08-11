@@ -95,11 +95,11 @@ function M._hud_or_shim(ctx)
   if ctx and ctx.hud then return ctx.hud end
   return {
     set_message = function(_, msg, lvl)
-      vim.notify("fox-symdeps · " .. msg,
+      require("fox-symdeps.ui").notify_raw("fox-symdeps · " .. msg,
                  lvl == "warn" and vim.log.levels.WARN or vim.log.levels.INFO)
     end,
     set_section = function(_, _, header)
-      vim.notify("fox-symdeps · " .. tostring(header)
+      require("fox-symdeps.ui").notify_raw("fox-symdeps · " .. tostring(header)
                  .. "  (open the HUD — <leader>dd — for the jumpable tree)", vim.log.levels.INFO)
     end,
   }
@@ -118,7 +118,7 @@ local function validate_types()
   for _, a in ipairs(M.registry) do
     for t in pairs(a.types or {}) do
       if not known[t] then
-        vim.notify(("fox-symdeps · actions row %q gates on unknown unit type %q")
+        require("fox-symdeps.ui").notify_raw(("fox-symdeps · actions row %q gates on unknown unit type %q")
                    :format(a.id or a.label, t), vim.log.levels.WARN)
       end
     end

@@ -82,11 +82,11 @@ function M.compare()
     return
   end
   if #P.cards < 2 then
-    return vim.notify("fox-symdeps · add a second card (<leader>dD on another unit) to compare",
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · add a second card (<leader>dD on another unit) to compare",
       vim.log.levels.INFO)
   end
   if not compare_room() then
-    return vim.notify("fox-symdeps · not enough room for a compare strip (widen the editor)",
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · not enough room for a compare strip (widen the editor)",
       vim.log.levels.INFO)
   end
   -- the previously-selected card = the most recent OTHER entry (cards are most-recent-last)
@@ -145,7 +145,7 @@ function M.add(palette)
     if not require("fox-symdeps.nodemodel").available() then
       return require("fox-symdeps.nodemodel").heal(function() M.add(P.palette) end)
     end
-    return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol) to add its card",
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · put the cursor in a tagged unit (or on a symbol) to add its card",
       vim.log.levels.INFO)
   end
 

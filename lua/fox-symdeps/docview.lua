@@ -197,17 +197,17 @@ function M.open()
   if #entries == 0 then
     entries = M.file_header_ids(buf)
     if #entries > 0 and blk then
-      vim.notify("fox-symdeps · " .. (blk.name or "unit") ..
+      require("fox-symdeps.ui").notify_raw("fox-symdeps · " .. (blk.name or "unit") ..
                  " has no [REFERENCE] — showing the FILE header's", vim.log.levels.INFO)
     end
   end
   if #entries == 0 then
-    return vim.notify("fox-symdeps · no [REFERENCE] tags here (unit or FILE header)",
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · no [REFERENCE] tags here (unit or FILE header)",
                       vim.log.levels.INFO)
   end
   local r = M.route(entries)
   if #r.skipped > 0 then
-    vim.notify("fox-symdeps · free-form ref(s) not routable (AUDIT/SOURCE/URL): "
+    require("fox-symdeps.ui").notify_raw("fox-symdeps · free-form ref(s) not routable (AUDIT/SOURCE/URL): "
                .. table.concat(r.skipped, " · "), vim.log.levels.INFO)
   end
   local file = vim.api.nvim_buf_get_name(buf)
@@ -219,11 +219,11 @@ function M.open()
   if pending == 0 then return end
   -- perceived-latency chip (operator polish #2): the resolver round-trip is ~200-500ms — name
   -- the wait so the gap reads as work, not deadness
-  vim.notify(("fox-symdeps · resolving %d ref(s)…"):format(#entries), vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw(("fox-symdeps · resolving %d ref(s)…"):format(#entries), vim.log.levels.INFO)
 
   local function finish()
     if #missing > 0 then
-      vim.notify("fox-symdeps · DEAD [REFERENCE] — does not resolve at HEAD: "
+      require("fox-symdeps.ui").notify_raw("fox-symdeps · DEAD [REFERENCE] — does not resolve at HEAD: "
                  .. table.concat(missing, " · "), vim.log.levels.WARN)
     end
     if #found == 0 then return end                 -- refusals named above; never a blank float
@@ -255,7 +255,7 @@ function M.open()
     runner.run(argv, root, function(out_lines)
       local rows = _decode(out_lines, "sites")
       if not rows then
-        vim.notify("fox-symdeps · --where resolver FAILED to run (refusal, not empty facts)",
+        require("fox-symdeps.ui").notify_raw("fox-symdeps · --where resolver FAILED to run (refusal, not empty facts)",
                    vim.log.levels.ERROR)
       else
         local p = M.partition(rows)
@@ -271,14 +271,14 @@ function M.open()
     runner.run(argv, root, function(out_lines)
       local rows = _decode(out_lines, "resolutions")
       if not rows then
-        vim.notify("fox-symdeps · --resolve resolver FAILED to run (refusal, not empty facts)",
+        require("fox-symdeps.ui").notify_raw("fox-symdeps · --resolve resolver FAILED to run (refusal, not empty facts)",
                    vim.log.levels.ERROR)
       else
         for _, row in ipairs(rows) do
           if row[2] == "RESOLVED" then
             found[#found + 1] = { id = row[1], file = row[3], line = 1 }
           elseif row[2] == "RENAMED" then
-            vim.notify(("fox-symdeps · %s RENAMED → %s (re-run the miner to repair the tag)")
+            require("fox-symdeps.ui").notify_raw(("fox-symdeps · %s RENAMED → %s (re-run the miner to repair the tag)")
                        :format(row[1], row[3]), vim.log.levels.INFO)
           else
             missing[#missing + 1] = row[1]

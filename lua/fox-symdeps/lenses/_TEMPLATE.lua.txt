@@ -52,7 +52,7 @@ lens.define{
   -- HUD's keybind-hint footer (that's how a lens key becomes discoverable without pressing `?`).
   hints = { t = "do-thing" }, -- key -> short label, shown in the footer
   actions = {
-    -- t = function(ctx, hud) vim.notify("hello from " .. ctx.symbol) end,
+    -- t = function(ctx, hud) require("fox-symdeps.ui").notify_raw("hello from " .. ctx.symbol) end,
   },
 }
 

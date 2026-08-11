@@ -38,4 +38,14 @@ function M.pin_width(cols)
   return math.max(60, math.floor((cols or vim.o.columns) * 0.42))
 end
 
+-- ONE notification voice (operator polish #4): every plugin notification routes through here —
+-- the `fox-symdeps · ` prefix is applied exactly once (call sites that already carry it keep
+-- their text; bare ones gain it), so the product speaks with one voice everywhere.
+function M.notify_raw(msg, level, opts)
+  if type(msg) == "string" and not msg:match("^fox%-symdeps") then
+    msg = "fox-symdeps · " .. msg
+  end
+  vim.notify(msg, level, opts)
+end
+
 return M

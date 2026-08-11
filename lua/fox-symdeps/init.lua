@@ -124,7 +124,7 @@ function M.inspect_cursor()
     if not require("fox-symdeps.nodemodel").available() then
       return require("fox-symdeps.nodemodel").heal(function() M.inspect_cursor() end)
     end
-    return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO)
   end
   local neotree = require("fox-symdeps.neotree")
   local h = require("fox-symdeps.hud").open(ctx, M.config.palette, { on_close = function() neotree.clear() end })
@@ -137,15 +137,15 @@ local function toggle_lens()
   local lens = require("fox-symdeps.highlight")
   if lens.active() then
     lens.clear()
-    return vim.notify("fox-symdeps · use-lens off", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · use-lens off", vim.log.levels.INFO)
   end
   local ctx = require("fox-symdeps.context").under_cursor()
   if not ctx then
-    return vim.notify("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · no symbol under cursor", vim.log.levels.INFO)
   end
   require("fox-symdeps.clangd").consumers(ctx, function(items, state)
     if state ~= "ok" or not items or #items == 0 then
-      return vim.notify("fox-symdeps · no uses (clangd " .. tostring(state) .. ")", vim.log.levels.INFO)
+      return require("fox-symdeps.ui").notify_raw("fox-symdeps · no uses (clangd " .. tostring(state) .. ")", vim.log.levels.INFO)
     end
     local n
     if ctx.kind == "function" then
@@ -154,7 +154,7 @@ local function toggle_lens()
     else
       n = lens.show(require("fox-symdeps.classify").classify(items))
     end
-    vim.notify(("fox-symdeps · use-lens on · %d uses · ]u/[u to hop"):format(n), vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw(("fox-symdeps · use-lens on · %d uses · ]u/[u to hop"):format(n), vim.log.levels.INFO)
   end)
 end
 
@@ -193,7 +193,7 @@ function M.setup(opts)
   require("fox-symdeps.ambient").pos = M.config.ambient_pos or "right_align"
   vim.api.nvim_create_user_command("FoxSymdepsReload", function()
     local n = require("fox-symdeps.pack").reload()
-    vim.notify(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw(("fox-symdeps · reloaded %d provider(s)"):format(n), vim.log.levels.INFO)
   end, { desc = "fox-symdeps: re-scan tool-pack dirs" })
   vim.api.nvim_create_user_command("FoxSymdepsAsmFlags", function()
     require("fox-symdeps.asmflags").choose()
@@ -209,22 +209,22 @@ function M.setup(opts)
       if not require("fox-symdeps.nodemodel").available() then
         return require("fox-symdeps.nodemodel").heal(function() vim.cmd(cmdopts.bang and "FoxSymdepsDerived!" or "FoxSymdepsDerived") end)
       end
-      return vim.notify("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO)
+      return require("fox-symdeps.ui").notify_raw("fox-symdeps · put the cursor in a tagged unit (or on a symbol)", vim.log.levels.INFO)
     end
     local write = cmdopts.bang -- `:FoxSymdepsDerived!` GENERATES the block into the source
     local buf, row0 = vim.api.nvim_get_current_buf(), vim.api.nvim_win_get_cursor(0)[1] - 1
-    vim.notify(write and "fox-symdeps · writing derived facts…" or "fox-symdeps · gathering derived facts…", vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw(write and "fox-symdeps · writing derived facts…" or "fox-symdeps · gathering derived facts…", vim.log.levels.INFO)
     require("fox-symdeps.facts").derived(ctx, function(f)
       if write then -- GENERATOR: write the STABLE facts ([UPSTREAM]/[CONSUMERS]) into the [DERIVED] block
         local n = require("fox-symdeps.tagwriter").write(buf, row0, f)
-        if n == nil then return vim.notify("fox-symdeps · no [DERIVED] block below the cursor's unit — convert it first", vim.log.levels.WARN) end
-        if n == 0 then return vim.notify("fox-symdeps · no stable facts to write (deps/consumers empty)", vim.log.levels.INFO) end
+        if n == nil then return require("fox-symdeps.ui").notify_raw("fox-symdeps · no [DERIVED] block below the cursor's unit — convert it first", vim.log.levels.WARN) end
+        if n == 0 then return require("fox-symdeps.ui").notify_raw("fox-symdeps · no stable facts to write (deps/consumers empty)", vim.log.levels.INFO) end
         pcall(function() vim.api.nvim_buf_call(buf, function() vim.cmd("silent keepjumps write") end) end) -- persist: disk == buffer (safe — .clang-format is DisableFormat)
-        return vim.notify(("fox-symdeps · wrote %d [DERIVED] line(s) for %s + saved (instr/simd stay live-preview)"):format(n, ctx.symbol), vim.log.levels.INFO)
+        return require("fox-symdeps.ui").notify_raw(("fox-symdeps · wrote %d [DERIVED] line(s) for %s + saved (instr/simd stay live-preview)"):format(n, ctx.symbol), vim.log.levels.INFO)
       end
       local lines = require("fox-symdeps.tagadapter").format_derived(f) -- real adapter → the [DERIVED] block
-      if lines and #lines > 0 then return vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO) end
-      vim.notify(("fox-symdeps · %s%s%s · deps: %s · consumers: %s"):format(f.symbol, -- null adapter → raw facts
+      if lines and #lines > 0 then return require("fox-symdeps.ui").notify_raw(table.concat(lines, "\n"), vim.log.levels.INFO) end
+      require("fox-symdeps.ui").notify_raw(("fox-symdeps · %s%s%s · deps: %s · consumers: %s"):format(f.symbol, -- null adapter → raw facts
         f.data_size and (" · " .. f.data_size .. " instr") or "",
         f.simd ~= nil and (" · " .. (f.simd and "simd" or "scalar")) or "",
         #f.dep_chain > 0 and table.concat(f.dep_chain, ", ") or "—",
@@ -262,7 +262,7 @@ function M.setup(opts)
       if name:match("^fox%-symdeps%.") and name ~= "fox-symdeps.init" then package.loaded[name] = nil; n = n + 1 end
     end
     set_highlights(M.config.palette)
-    vim.notify(("fox-symdeps · reloaded %d module(s) from disk (core + lenses)"):format(n), vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw(("fox-symdeps · reloaded %d module(s) from disk (core + lenses)"):format(n), vim.log.levels.INFO)
   end, { desc = "fox-symdeps: hot-reload ALL modules (core + lenses) from disk" })
   -- re-apply on colorscheme change so a theme swap re-themes the HUD
   vim.api.nvim_create_autocmd("ColorScheme", {

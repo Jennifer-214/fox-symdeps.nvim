@@ -76,7 +76,7 @@ function M.toggle()
     end
     cache = {}
   end
-  vim.notify("fox-symdeps · status chip " .. (M.enabled and "ON (winbar)" or "off"), vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw("fox-symdeps · status chip " .. (M.enabled and "ON (winbar)" or "off"), vim.log.levels.INFO)
 end
 
 return M

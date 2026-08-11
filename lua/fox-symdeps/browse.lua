@@ -27,7 +27,7 @@ function M.browse(palette)
     root,
     function(lines)
       local structs = parse(lines)
-      if #structs == 0 then return vim.notify("fox-symdeps · no structs found here", vim.log.levels.INFO) end
+      if #structs == 0 then return require("fox-symdeps.ui").notify_raw("fox-symdeps · no structs found here", vim.log.levels.INFO) end
       vim.ui.select(structs, {
         prompt = "fox-symdeps · track struct:",
         format_item = function(it) return ("%-28s %s:%d"):format(it.name, it.file, it.line) end,
@@ -53,7 +53,7 @@ function M.roam(palette)
     if not query or vim.trim(query) == "" then return end
     require("fox-symdeps.clangd").workspace_symbols(query, function(syms)
       if not syms or #syms == 0 then
-        return vim.notify("fox-symdeps · no symbols match '" .. query .. "' (is clangd attached?)", vim.log.levels.INFO)
+        return require("fox-symdeps.ui").notify_raw("fox-symdeps · no symbols match '" .. query .. "' (is clangd attached?)", vim.log.levels.INFO)
       end
       vim.ui.select(syms, {
         prompt = "fox-symdeps · inspect:",

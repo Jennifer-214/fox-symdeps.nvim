@@ -160,14 +160,14 @@ function M.toggle()
     vim.api.nvim_create_autocmd({ "BufWritePost", "BufEnter" }, {
       group = aug, callback = function(a) refresh(a.buf) end,
     })
-    vim.notify("fox-symdeps · data-dependent branch tags ON (compiling…)", vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw("fox-symdeps · data-dependent branch tags ON (compiling…)", vim.log.levels.INFO)
     refresh()
   else
     if aug then pcall(vim.api.nvim_del_augroup_by_id, aug); aug = nil end
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(b) then vim.api.nvim_buf_clear_namespace(b, NS, 0, -1) end
     end
-    vim.notify("fox-symdeps · data-dependent branch tags off", vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw("fox-symdeps · data-dependent branch tags off", vim.log.levels.INFO)
   end
 end
 

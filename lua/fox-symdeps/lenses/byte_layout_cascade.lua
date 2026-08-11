@@ -136,7 +136,7 @@ local function run_breakcheck(hud, tree)
     -- persistent, readable status in the HUD (the notify flashes by too fast to read)
     if nbroken > 0 then
       hud:set_message(("break-check (b): %d enforcement site(s) BROKEN — sizeof/wire compat"):format(nbroken), "error")
-      vim.notify(("fox-symdeps · ▲ %s: a change broke %d enforcement site(s) across the byte-layout cascade — sizeof/wire compat"):format(hud.ctx.symbol, nbroken), vim.log.levels.ERROR)
+      require("fox-symdeps.ui").notify_raw(("fox-symdeps · ▲ %s: a change broke %d enforcement site(s) across the byte-layout cascade — sizeof/wire compat"):format(hud.ctx.symbol, nbroken), vim.log.levels.ERROR)
     elseif nerr > 0 then
       -- couldn't compile ≠ nothing broke — say so LOUDLY, never imply a clean bill of health
       hud:set_message(("break-check (b): ⚠ %d file(s) UNVERIFIED — could NOT compile (NOT a clean result): %s"):format(nerr, table.concat(errors, " | ")), "warn")

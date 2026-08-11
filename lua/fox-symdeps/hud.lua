@@ -93,7 +93,7 @@ function Hud:set_layout(data, state)
   if self.external_reload and data and data.size and self.prev_size and data.size ~= self.prev_size then
     local d = data.size - self.prev_size
     local crossed = math.floor((self.prev_size - 1) / 64) ~= math.floor((data.size - 1) / 64)
-    vim.notify(("fox-symdeps · %s: sizeof %d→%d (%s%d)%s"):format(
+    require("fox-symdeps.ui").notify_raw(("fox-symdeps · %s: sizeof %d→%d (%s%d)%s"):format(
       self.ctx.symbol, self.prev_size, data.size, d > 0 and "+" or "", d,
       crossed and "  ▲ crossed a cache line" or ""), vim.log.levels.WARN)
   end
@@ -187,7 +187,7 @@ function Hud:map_action(key, fn, desc)
     self._warned_keys = self._warned_keys or {}
     if not self._warned_keys[key] then
       self._warned_keys[key] = true
-      vim.notify(("fox-symdeps · lens key %q is surface-reserved — reach the action via the menu (m)")
+      require("fox-symdeps.ui").notify_raw(("fox-symdeps · lens key %q is surface-reserved — reach the action via the menu (m)")
                  :format(key), vim.log.levels.WARN)
     end
     return
@@ -288,7 +288,7 @@ function Hud:_window()
   map("r", function() -- re-run the full analysis (cascade + break-check) for the current symbol
     self.external_breakcheck = true
     require("fox-symdeps").inspect(self.ctx, self)
-    vim.notify("fox-symdeps · refreshed", vim.log.levels.INFO)
+    require("fox-symdeps.ui").notify_raw("fox-symdeps · refreshed", vim.log.levels.INFO)
   end)
   map("w", function() self:_width_lits() end)
   map("a", function() self:_asm() end)
@@ -835,12 +835,12 @@ end
 function Hud:_to_quickfix()
   local qf = build_qf(self.items)
   if #qf == 0 then
-    return vim.notify("fox-symdeps · nothing to send to quickfix", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · nothing to send to quickfix", vim.log.levels.INFO)
   end
   vim.fn.setqflist({}, " ", { title = "fox-symdeps: " .. (self.ctx.symbol or ""), items = qf })
   if self.mode == "float" then self:close() end
   open_quickfix()
-  vim.notify(("fox-symdeps · %d sites → quickfix (:cnext / :cprev · q closes)"):format(#qf), vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw(("fox-symdeps · %d sites → quickfix (:cnext / :cprev · q closes)"):format(#qf), vim.log.levels.INFO)
 end
 
 -- y: yank the whole readout to the system clipboard (+ unnamed) — copy the panel as text
@@ -849,7 +849,7 @@ function Hud:_yank()
   local text = table.concat(vim.api.nvim_buf_get_lines(self.buf, 0, -1, false), "\n")
   pcall(vim.fn.setreg, "+", text)
   vim.fn.setreg('"', text)
-  vim.notify("fox-symdeps · readout yanked to clipboard", vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw("fox-symdeps · readout yanked to clipboard", vim.log.levels.INFO)
 end
 
 -- w: scan the symbol's files for hardcoded width literals (== its size, byte-ish, no sizeof) and
@@ -876,7 +876,7 @@ function Hud:_width_lits()
   for _, sec in ipairs(self.sections or {}) do collect(sec.tree) end
   local sus = require("fox-symdeps.widthlit").scan(files, size)
   if #sus == 0 then
-    return vim.notify(("fox-symdeps · no width-literal suspects for %d B"):format(size), vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw(("fox-symdeps · no width-literal suspects for %d B"):format(size), vim.log.levels.INFO)
   end
   local qf = {}
   for _, s in ipairs(sus) do qf[#qf + 1] = { filename = s.file, lnum = s.line, col = 1, text = s.text } end
@@ -888,7 +888,7 @@ function Hud:_width_lits()
   vim.fn.setqflist({}, " ", { title = ("fox-symdeps width-literals %dB: %s"):format(size, self.ctx.symbol or ""), items = qf })
   if self.mode == "float" then self:close() end
   open_quickfix()
-  vim.notify(("fox-symdeps · %d width-literal suspect(s) → quickfix (review — heuristic · q closes)"):format(#sus), vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw(("fox-symdeps · %d width-literal suspect(s) → quickfix (review — heuristic · q closes)"):format(#sus), vim.log.levels.INFO)
 end
 
 -- a: asm flag-diff for a FUNCTION under cursor — compile under two flag-sets, show insns/branches/
@@ -933,7 +933,7 @@ end
 
 function Hud:_asm()
   if self.ctx.kind ~= "function" then
-    return vim.notify("fox-symdeps · asm-diff is for functions (put the cursor on a function)", vim.log.levels.INFO)
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · asm-diff is for functions (put the cursor on a function)", vim.log.levels.INFO)
   end
   -- Resolve the enclosing namespace, then (for templates) ask for the
   -- instantiation, then run. treesitter got the namespace on a DEFINITION site
@@ -974,7 +974,7 @@ function Hud:_asm_run(container, targs)
   -- hover fallback); targs is an optional template instantiation ("<64>").
   local bufnr = self.ctx.bufnr
   local fn = ((container ~= "") and (container .. "::" .. self.ctx.symbol) or self.ctx.symbol) .. (targs or "")
-  vim.notify(("fox-symdeps · asm-diff %s: %s vs %s…"):format(fn, a.name, b.name), vim.log.levels.INFO)
+  require("fox-symdeps.ui").notify_raw(("fox-symdeps · asm-diff %s: %s vs %s…"):format(fn, a.name, b.name), vim.log.levels.INFO)
   local asmdiff = require("fox-symdeps.asmdiff")
   local res, rerun = {}, function() self:_asm_run(container, targs) end
   local function done()

@@ -50,7 +50,7 @@ function M.choose(cb)
       if not b or b:match("^%+") then return end
       st.a, st.b = a, b
       M.save(st)
-      vim.notify(("fox-symdeps · asm-diff pair: %s vs %s (saved)"):format(a, b), vim.log.levels.INFO)
+      require("fox-symdeps.ui").notify_raw(("fox-symdeps · asm-diff pair: %s vs %s (saved)"):format(a, b), vim.log.levels.INFO)
       if cb then cb() end
     end)
   end)
@@ -67,7 +67,7 @@ function M.add(cb)
       for f in flags:gmatch("%S+") do list[#list + 1] = f end
       table.insert(st.sets, { name = name, flags = list })
       M.save(st)
-      vim.notify("fox-symdeps · added flag-set " .. name .. " (saved)", vim.log.levels.INFO)
+      require("fox-symdeps.ui").notify_raw("fox-symdeps · added flag-set " .. name .. " (saved)", vim.log.levels.INFO)
       if cb then cb() end
     end)
   end)
