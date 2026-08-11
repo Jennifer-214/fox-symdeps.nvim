@@ -73,17 +73,22 @@ function M.check()
     else h.warn("no lenses registered — check lenses/ loaded at setup") end
   end
 
-  local ok_m, mod = pcall(require, "fox-symdeps")
-  local dd = (ok_m and mod.config and mod.config.doc_dirs) or {}
-  if #dd == 0 then
-    h.info("doc_dirs empty — `n` (notes) searches only the project repo (set opts.doc_dirs to also grep a workspace)")
+  -- ── docview resolver chain (the [REFERENCE] doc-viewer's deps) ─────────────
+  if vim.fn.executable("python3") == 1 then
+    h.ok("python3: " .. vim.fn.exepath("python3"))
   else
-    local missing = {}
-    for _, d in ipairs(dd) do
-      if vim.fn.isdirectory(vim.fn.expand(d)) ~= 1 then missing[#missing + 1] = d end
+    h.error("python3 not on PATH — docview [REFERENCE] resolution (citable_ids.py) needs it")
+  end
+  do
+    local buf_file = vim.api.nvim_buf_get_name(0)
+    local root = (buf_file ~= "" and vim.fs.root(buf_file, { ".git", "compile_commands.json" }))
+                 or vim.fn.getcwd()
+    local resolver = root .. "/tools/citable_ids.py"
+    if vim.fn.filereadable(resolver) == 1 then
+      h.ok("citable_ids.py reachable (" .. resolver .. ")")
+    else
+      h.warn("tools/citable_ids.py not found from this root — docview refs will refuse (open a repo file)")
     end
-    if #missing == 0 then h.ok(("doc_dirs: %d configured, all present"):format(#dd))
-    else h.warn("doc_dirs has missing dirs: " .. table.concat(missing, ", ")) end
   end
 
   -- ── optional integrations ──────────────────────────────────────────────────

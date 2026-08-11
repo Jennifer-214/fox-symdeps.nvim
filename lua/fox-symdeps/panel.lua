@@ -65,9 +65,10 @@ function M.win() return M.is_open() and P.hud.win or nil end
 -- the board. Width-gated — a cramped compare is worse than none.
 
 local function compare_room()
+  local ui = require("fox-symdeps.ui")   -- thresholds live in the ONE policy home (S9)
   local cols, lines = vim.o.columns, vim.o.lines
-  if (cols / math.max(lines, 1)) >= 2.2 then return cols >= 140 end -- two right-strips
-  return lines >= 36                                                 -- two bottom-strips
+  if (cols / math.max(lines, 1)) >= ui.ASPECT_WIDE then return cols >= ui.COMPARE_MIN.cols end
+  return lines >= ui.COMPARE_MIN.lines
 end
 
 function M._companion_symbol() -- test seam

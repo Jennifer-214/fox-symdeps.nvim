@@ -73,16 +73,20 @@ so point `dir` at the checkout):
 
 ## Usage
 
-- `<leader>dd` — float HUD for the symbol under the cursor
-- `<leader>dD` — persistent panel (follows structs/functions; `<leader>d[` / `d]` flip tabs; `p` pin)
-- `<leader>dS` — browse structs · `<leader>du` — in-code use-lens (`]u`/`[u` to hop)
-- In the HUD: `j`/`k` select · `l`/`h` expand/fold · `<CR>` jump (drops a jumplist mark, `<C-o>` back) ·
-  `/` filter · `?` full key + section glossary · `q`/`<Esc>` close
+**The action menu is the root surface** — `<leader>dm` (or `m` inside any HUD) reaches EVERY
+operation: the unit-scoped analyses (type/context-gated) plus the global launchers, with ✎/⚠
+write-tier icons. Keybinds are shortcuts into it. The full, always-current key list lives in
+`?` inside any surface — it derives from the keymap registry, so this README no longer
+hand-copies it (it had drifted twice).
+
+- `<leader>dd` — float HUD on the unit at cursor · `<leader>dm` — the action menu
+- In the HUD: `j`/`k` select · `l`/`h` expand/fold · `<CR>` jump (`<C-o>` back) · `/` filter ·
+  `?` all keys + glossary · `q`/`<Esc>` close · `m` menu
 
 ### Config
 
-`opts.palette` (theme tokens — see Install above) and `opts.doc_dirs` (extra dirs the `n` notes lens
-greps for symbol mentions — e.g. a workspace repo of design specs / invariants) — both optional.
+`opts.palette` (theme tokens — see Install above) — optional. (`opts.doc_dirs` retired with the
+`n` mention-sweep lens, 2026-08-10: the curated `◆ Docs` section + `m → Docs` supersede it.)
 
 ## Health
 

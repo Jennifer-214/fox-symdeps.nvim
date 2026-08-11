@@ -138,6 +138,12 @@ function M.for_type(t, ctx)
       if visible then out[#out + 1] = a end
     end
   end
+  -- MENU-AS-ROOT (operator rule): the global launchers ride every menu, DERIVED from the
+  -- keymap registry — the menu always has EVERY option that is valid here.
+  local okl, fox = pcall(require, "fox-symdeps")
+  if okl and fox.menu_launchers then
+    for _, r in ipairs(fox.menu_launchers()) do out[#out + 1] = r end
+  end
   return out
 end
 

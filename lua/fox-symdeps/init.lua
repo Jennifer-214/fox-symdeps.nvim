@@ -280,11 +280,14 @@ function M.setup(opts)
       desc = "fox-symdeps: board — ADD this unit's card (accumulates; s compares; q closes)" },
     { lhs = "<leader>df", hint = "follow card", fn = function() require("fox-symdeps.followcard").toggle(M.config.palette) end,
       desc = "fox-symdeps: follow card (auto-follows the enclosing unit)" },
-    { lhs = "<leader>dS", hint = "browse structs", fn = function() require("fox-symdeps.browse").browse(M.config.palette) end,
+    { lhs = "<leader>dS", hint = "browse structs", menu = "Browse structs (picker)",
+      fn = function() require("fox-symdeps.browse").browse(M.config.palette) end,
       desc = "fox-symdeps: browse structs" },
-    { lhs = "<leader>dr", hint = "roam symbols", fn = function() require("fox-symdeps.browse").roam(M.config.palette) end,
+    { lhs = "<leader>dr", hint = "roam symbols", menu = "Roam — any workspace symbol (picker)",
+      fn = function() require("fox-symdeps.browse").roam(M.config.palette) end,
       desc = "fox-symdeps: roam to any symbol (workspace)" },
-    { lhs = "<leader>dw", hint = "dashboard", fn = function() require("fox-symdeps.dashboard").open(M.config.palette) end,
+    { lhs = "<leader>dw", hint = "dashboard", menu = "Dashboard — whole-project risks",
+      fn = function() require("fox-symdeps.dashboard").open(M.config.palette) end,
       desc = "fox-symdeps: codebase dashboard (whole-project risks)" },
     { lhs = "<leader>dg", hint = "straddle diagnostics", fn = function() require("fox-symdeps.diagnostics").toggle() end,
       desc = "fox-symdeps: toggle straddle diagnostics" },
@@ -292,13 +295,15 @@ function M.setup(opts)
       desc = "fox-symdeps: ambient layout lens (inline size as you move)" },
     { lhs = "<leader>da", hint = "lock layout (static_assert)", fn = function() require("fox-symdeps.assertion").insert() end,
       desc = "fox-symdeps: lock layout (insert static_assert sizeof/alignof)" },
-    { lhs = "<leader>dc", hint = "size chip (winbar)", fn = function() require("fox-symdeps.status").toggle() end,
+    { lhs = "<leader>dc", hint = "size chip (winbar)", menu = "Toggle the always-on size chip (winbar)",
+      fn = function() require("fox-symdeps.status").toggle() end,
       desc = "fox-symdeps: toggle the always-on size chip (winbar)" },
     { lhs = "<leader>de", hint = "source↔asm explorer", fn = function() require("fox-symdeps.asmexplorer").open(M.config.palette) end,
       desc = "fox-symdeps: source↔asm explorer (side-by-side, cursor-synced, 1:1)" },
     { lhs = "<leader>db", hint = "branch tags", fn = function() require("fox-symdeps.branchtag").toggle() end,
       desc = "fox-symdeps: inline data-dependent branch tags (▲, non-destructive)" },
-    { lhs = "<leader>du", hint = "use-lens", fn = toggle_lens,
+    { lhs = "<leader>du", hint = "use-lens", menu = "Toggle the in-code use-lens (]u/[u hop)",
+      fn = toggle_lens,
       desc = "fox-symdeps: use-lens (in-code tags)" },
     { lhs = "<leader>dm", hint = "action menu", fn = function() vim.cmd("FoxSymdepsMenu") end,
       desc = "fox-symdeps: action menu (context-filtered by tag [TYPE])" },
@@ -321,6 +326,21 @@ function M.setup(opts)
     pcall(wk.add, { { "<leader>d", group = "symdeps" } })
   end
   if M.config.auto_panel then require("fox-symdeps.cockpit").toggle(true) end
+end
+
+--- Launcher rows for the ACTION MENU, derived from the keymap registry (operator rule
+--- 2026-08-10: "the menu is the bottom layer i operate everything else from — it has EVERY
+--- option"). A keymap row opts in with `menu = "<label>"`; the unit-scoped ops already live
+--- in actions.registry (type/when-gated per §6), so only the global launchers ride this —
+--- ONE derivation, never a fifth hand-copy of the op list.
+function M.menu_launchers()
+  local out = {}
+  for _, r in ipairs(M._keymaps or {}) do
+    if r.menu then
+      out[#out + 1] = { id = "launch:" .. r.lhs, label = r.menu .. "  (" .. r.lhs .. ")", run = r.fn }
+    end
+  end
+  return out
 end
 
 --- "Open" help lines DERIVED from the keymap registry (fleet K4) — wrapped at ~96 cols.

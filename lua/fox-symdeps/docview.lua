@@ -109,7 +109,7 @@ function M.pin(site)
   vim.api.nvim_win_set_buf(win, buf)
   pcall(vim.api.nvim_win_set_cursor, win, { math.max(site.line, 1), 0 })
   vim.wo[win].cursorline = true
-  vim.api.nvim_win_set_width(win, math.max(60, math.floor(vim.o.columns * 0.42)))
+  vim.api.nvim_win_set_width(win, require("fox-symdeps.ui").pin_width())
   vim.wo[win].winfixwidth = true   -- survives `wincmd =` rebalances (fleet S6)
 end
 
@@ -119,11 +119,9 @@ end
 local function open_float(site)
   local buf = vim.fn.bufadd(site.file)
   vim.fn.bufload(buf)
-  local W, H = vim.o.columns, vim.o.lines
-  local w = math.min(110, math.max(60, math.floor(W * 0.55)))
-  local h = math.floor(H * 0.72)
+  local w, h, row, col = require("fox-symdeps.ui").reading_pane()   -- the reading-pane token
   local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor", row = math.max(1, math.floor((H - h) / 2) - 1), col = W - w - 2,
+    relative = "editor", row = row, col = col,
     width = w, height = h, border = "rounded",
     title = ("  %s — %s:%d · p=pin · q=close "):format(
       site.id, vim.fn.fnamemodify(site.file, ":t"), site.line),

@@ -54,11 +54,8 @@ end
 -- vertical space instead of scarce width, which also dodges truncation on a
 -- portrait monitor. Pure — unit-tested via M._resolve_placement.
 local function resolve_placement(cols, lines)
-  cols, lines = cols or 80, math.max(lines or 24, 1)
-  if (cols / lines) >= 2.2 then
-    return { cfg = { split = "right", width = math.min(60, math.floor(cols * 0.4)) }, fix = "winfixwidth" }
-  end
-  return { cfg = { split = "below", height = math.max(12, math.floor(lines * 0.4)) }, fix = "winfixheight" }
+  -- policy moved to ui.lua (fleet S4/S9 — one home); this stays the tested seam
+  return require("fox-symdeps.ui").resolve_placement(cols, lines)
 end
 M._resolve_placement = resolve_placement
 
@@ -248,8 +245,8 @@ function Hud:_window()
       relative = "cursor",
       row = 1,
       col = 2,
-      width = math.min(72, math.max(40, vim.o.columns - 6)),   -- editor-clamped (fleet S3)
-      height = math.min(28, math.max(10, vim.o.lines - 4)),
+      width = select(1, require("fox-symdeps.ui").card_dims()),   -- editor-clamped card token (S3)
+      height = select(2, require("fox-symdeps.ui").card_dims()),
       style = "minimal",
       border = "rounded",
       title = { { " " .. self.ctx.symbol .. " ", "FoxSymdepsTitle" } },
