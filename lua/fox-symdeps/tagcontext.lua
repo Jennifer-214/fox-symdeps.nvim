@@ -36,7 +36,11 @@ function M.enclosing_block(buf, row0)
     local l = line(buf, i)
     local et = l:match("//%s*%[END_(%u+)%]")
     if et and openers[et] then return nil end -- closer first → between blocks
-    local ty, nm = l:match("//%s*%[(%u+)%]_%[([%w_]+)%]")
+    -- name class is [^%]] not [%w_]: per-instantiation unit names carry angle-form
+    -- (`[STRUCT]_[FixedPoint<2,64>]`) — the old class rejected `<`/`,`/`>`, so the WHOLE
+    -- unit failed to resolve on those blocks (generic palette, no type-gated rows — operator
+    -- screenshot 2026-08-10). Only opener TYPES act on this capture, so widening is safe.
+    local ty, nm = l:match("//%s*%[(%u+)%]_%[([^%]]+)%]")
     if ty and openers[ty] then -- opener first → inside it; confirm the matching closer is at/below cursor
       local n = vim.api.nvim_buf_line_count(buf)
       for j = i + 1, math.min(n - 1, i + 2000) do

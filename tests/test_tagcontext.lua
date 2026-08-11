@@ -110,6 +110,23 @@ eq((TC.enclosing_block(nested, 2) or {}).type, "STRUCT", "STRUCT resolves")
 eq((TC.enclosing_block(nested, 8) or {}).type, "FUNCTION", "second block resolves independently")
 eq(TC.enclosing_block(nested, 5), nil, "cursor between blocks (after a closer) → nil")
 
+-- ── 3b. ANGLE-FORM per-instantiation names resolve (operator screenshot 2026-08-10) ─────────────
+-- `[STRUCT]_[FixedPoint<2,64>]` — the old [%w_]+ name class rejected `<`/`,`/`>`, so the WHOLE
+-- unit failed to resolve on per-instantiation blocks: generic palette title, every type-gated
+-- row (incl. docview's [REFERENCE] row) hidden. The name class is [^%]] now.
+local angle = buf_from({
+  "// [STRUCT]_[FixedPoint<2,64>]",                              -- 0
+  "// [REFERENCE]_[DECISION]_[[D-99] [D-125]]",                  -- 1
+  "// [CODE]",                                                   -- 2
+  "template <> struct FixedPoint<2, 64> { __int128 v; };",       -- 3  ← cursor here
+  "// [END_CODE]",                                               -- 4
+  "// [END_STRUCT]_[FixedPoint<2,64>]",                          -- 5
+})
+local b3b = TC.enclosing_block(angle, 3)
+ok(b3b ~= nil, "angle-form unit name resolves (FixedPoint<2,64>)")
+eq(b3b and b3b.type, "STRUCT", "angle-form: type STRUCT")
+eq(b3b and b3b.name, "FixedPoint<2,64>", "angle-form: full instantiation name carried")
+
 -- ── 4. no node model → (nil, 'no-model') so the caller can offer the heal ────────────────────────
 nm._inject(false) -- force unavailable (NOT nil: the in-tree anchor would find the real binary)
 local b4, err = TC.enclosing_block(nested, 8)
