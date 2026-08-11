@@ -39,5 +39,21 @@ ok(#p.missing == 1 and p.missing[1] == "ZZ-9",
    "partition: MISSING ids named, never dropped")
 ok(#D.ref_ids({ "// [CODE]", "int y;" }) == 0, "no [REFERENCE] → empty list (caller refuses)")
 
+-- subcat-aware entries + routing (id-shaped → --where; doc-shaped → --resolve; free-form skipped)
+local es = D.ref_entries({
+  "// [REFERENCE]_[DECISION]_[[D-1] [D-2]]",
+  "// [REFERENCE]_[DESIGN_SPEC]_[branchless-dispatch-discipline.md]",
+  "// [REFERENCE]_[MEMORY]_[feedback_plan_right_not_fast]",
+  "// [REFERENCE]_[URL]_[https://example.com]",
+})
+ok(#es == 5 and es[1].subcat == "DECISION" and es[3].subcat == "DESIGN_SPEC",
+   "ref_entries carries subcats")
+local r = D.route(es)
+ok(#r.where == 2 and r.where[1] == "D-1", "route: id-shaped → --where")
+ok(#r.resolve == 2 and r.resolve[1] == "branchless-dispatch-discipline.md"
+   and r.resolve[2] == "feedback_plan_right_not_fast.md",
+   "route: doc-shaped → --resolve (.md appended when absent)")
+ok(#r.skipped == 1 and r.skipped[1]:match("^URL:") ~= nil, "route: free-form skipped, NAMED")
+
 io.write(("docview: %d pass, %d fail\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

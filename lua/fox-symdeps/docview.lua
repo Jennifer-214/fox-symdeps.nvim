@@ -6,29 +6,57 @@
 -- failed-to-run → named ERROR · MISSING id → named refusal — NEVER a blank float.
 local M = {}
 
--- pure: block lines → ordered unique ids from [REFERENCE] lines. cursor_rel (1-based index
--- into `lines`, optional): if THAT line is a [REFERENCE] line, only its ids win
--- (point-at-a-thing beats whole-unit).
-function M.ref_ids(lines, cursor_rel)
-  local function ids_of(l)
-    local val = l:match("%[REFERENCE%]_%[[%u%d_]+%]_%[(.+)%]%s*$")
-    if not val then return nil end
+-- pure: block lines → ordered unique {subcat, id} entries from [REFERENCE] lines. cursor_rel
+-- (1-based index into `lines`, optional): if THAT line is a [REFERENCE] line, only its
+-- entries win (point-at-a-thing beats whole-unit).
+function M.ref_entries(lines, cursor_rel)
+  local function entries_of(l)
+    local sub, val = l:match("%[REFERENCE%]_%[([%u%d_|]+)%]_%[(.+)%]%s*$")
+    if not sub then return nil end
     local out = {}
-    for tok in val:gmatch("%[([^%[%]]+)%]") do out[#out + 1] = tok end
-    if #out == 0 then out[1] = vim.trim(val) end
+    for tok in val:gmatch("%[([^%[%]]+)%]") do out[#out + 1] = { subcat = sub, id = tok } end
+    if #out == 0 then out[1] = { subcat = sub, id = vim.trim(val) } end
     return out
   end
   if cursor_rel then
-    local at = ids_of(lines[cursor_rel] or "")
+    local at = entries_of(lines[cursor_rel] or "")
     if at then return at end
   end
   local seen, out = {}, {}
   for _, l in ipairs(lines) do
-    for _, id in ipairs(ids_of(l) or {}) do
-      if not seen[id] then seen[id] = true; out[#out + 1] = id end
+    for _, e in ipairs(entries_of(l) or {}) do
+      local k = e.subcat .. "\0" .. e.id
+      if not seen[k] then seen[k] = true; out[#out + 1] = e end
     end
   end
   return out
+end
+
+-- back-compat id list (tests + file_header_ids callers)
+function M.ref_ids(lines, cursor_rel)
+  local out = {}
+  for _, e in ipairs(M.ref_entries(lines, cursor_rel)) do out[#out + 1] = e.id end
+  return out
+end
+
+-- pure: entries → { where = {id…}, resolve = {name…}, skipped = {label…} }. ID-shaped subcats
+-- ride `--where` (defining-site lookup); DOC-shaped (DESIGN_SPEC/MEMORY/PLAN) ride `--resolve`
+-- (bare-name path probe; `.md` appended when absent); AUDIT/SOURCE/URL are existence-unchecked
+-- free-form → skipped, NAMED (never silently dropped).
+local DOC_SUBCATS = { DESIGN_SPEC = true, MEMORY = true, PLAN = true }
+local FREE_SUBCATS = { AUDIT = true, SOURCE = true, URL = true }
+function M.route(entries)
+  local r = { where = {}, resolve = {}, skipped = {} }
+  for _, e in ipairs(entries) do
+    if DOC_SUBCATS[e.subcat] then
+      r.resolve[#r.resolve + 1] = e.id:match("%.md$") and e.id or (e.id .. ".md")
+    elseif FREE_SUBCATS[e.subcat] then
+      r.skipped[#r.skipped + 1] = ("%s:%s"):format(e.subcat, e.id)
+    else
+      r.where[#r.where + 1] = e.id
+    end
+  end
+  return r
 end
 
 -- pure: envelope rows → { found = { {id,file,line} … }, missing = { id … } }. A row set with
@@ -109,59 +137,65 @@ function M.file_header_ids(buf)
   end
   local head = {}
   for i = 1, stop do head[i] = lines[i] end
-  return M.ref_ids(head)
+  return M.ref_entries(head)
 end
 
 -- The entry point: resolve the enclosing unit's [REFERENCE] ids → float / chooser / refusal;
 -- unit-first, FILE-header fallback (named when it fires).
+local function _decode(out_lines, table_name)
+  if not out_lines then return nil end
+  local ok, env = pcall(vim.json.decode, table.concat(out_lines, "\n"))
+  if not ok or type(env) ~= "table"
+     or not (env.payload and env.payload[table_name] and env.payload[table_name].rows) then
+    return nil
+  end
+  return env.payload[table_name].rows
+end
+
 function M.open()
   local buf = vim.api.nvim_get_current_buf()
   local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
   local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
-  local ids = {}
+  local entries = {}
   if blk then
     local blines = vim.api.nvim_buf_get_lines(buf, blk.opener, blk.closer + 1, false)
-    ids = M.ref_ids(blines, row0 - blk.opener + 1)
+    entries = M.ref_entries(blines, row0 - blk.opener + 1)
   end
-  if #ids == 0 then
-    ids = M.file_header_ids(buf)
-    if #ids > 0 and blk then
+  if #entries == 0 then
+    entries = M.file_header_ids(buf)
+    if #entries > 0 and blk then
       vim.notify("fox-symdeps · " .. (blk.name or "unit") ..
                  " has no [REFERENCE] — showing the FILE header's", vim.log.levels.INFO)
     end
   end
-  if #ids == 0 then
+  if #entries == 0 then
     return vim.notify("fox-symdeps · no [REFERENCE] tags here (unit or FILE header)",
                       vim.log.levels.INFO)
+  end
+  local r = M.route(entries)
+  if #r.skipped > 0 then
+    vim.notify("fox-symdeps · free-form ref(s) not routable (AUDIT/SOURCE/URL): "
+               .. table.concat(r.skipped, " · "), vim.log.levels.INFO)
   end
   local file = vim.api.nvim_buf_get_name(buf)
   local root = vim.fs.root(file, { ".git", "compile_commands.json" })
                or vim.fn.fnamemodify(file, ":h")
-  local argv = { "python3", "tools/citable_ids.py", "--where" }
-  for _, id in ipairs(ids) do argv[#argv + 1] = id end
-  require("fox-symdeps.runner").run(argv, root, function(out_lines)
-    if not out_lines then
-      -- refusal ≠ empty facts: the resolver failed to RUN (missing python/tools — a
-      -- different fact from a dead reference)
-      return vim.notify("fox-symdeps · citable_ids resolver FAILED to run", vim.log.levels.ERROR)
+  local runner = require("fox-symdeps.runner")
+  local found, missing = {}, {}
+  local pending = (#r.where > 0 and 1 or 0) + (#r.resolve > 0 and 1 or 0)
+  if pending == 0 then return end
+
+  local function finish()
+    if #missing > 0 then
+      vim.notify("fox-symdeps · DEAD [REFERENCE] — does not resolve at HEAD: "
+                 .. table.concat(missing, " · "), vim.log.levels.WARN)
     end
-    local ok, env = pcall(vim.json.decode, table.concat(out_lines, "\n"))
-    if not ok or type(env) ~= "table"
-       or not (env.payload and env.payload.sites and env.payload.sites.rows) then
-      return vim.notify("fox-symdeps · undecodable defining_site envelope (refusal)",
-                        vim.log.levels.ERROR)
-    end
-    local p = M.partition(env.payload.sites.rows)
-    if #p.missing > 0 then
-      vim.notify("fox-symdeps · DEAD [REFERENCE] — no defining site at HEAD: "
-                 .. table.concat(p.missing, " · "), vim.log.levels.WARN)
-    end
-    if #p.found == 0 then return end               -- refusal already named; never a blank float
-    if #p.found == 1 then return open_float(p.found[1]) end
+    if #found == 0 then return end                 -- refusals named above; never a blank float
+    if #found == 1 then return open_float(found[1]) end
     local items = {}
-    for _, s in ipairs(p.found) do
-      -- compact label: last two path segments only (full-path labels wrapped the chooser —
-      -- operator screenshot 2026-08-10); the float title carries file:line after opening
+    for _, s in ipairs(found) do
+      -- compact label: last two path segments (full-path labels wrapped the chooser);
+      -- the float title carries file:line after opening
       local segs = {}
       for seg in s.file:gmatch("[^/]+") do segs[#segs + 1] = seg end
       local short = (#segs >= 2) and (segs[#segs - 1] .. "/" .. segs[#segs]) or s.file
@@ -171,7 +205,48 @@ function M.open()
       }
     end
     require("fox-symdeps.menu").open(items, { title = "[REFERENCE] → defining site" })
-  end)
+  end
+  local function done_one() pending = pending - 1; if pending == 0 then finish() end end
+
+  if #r.where > 0 then
+    local argv = { "python3", "tools/citable_ids.py", "--where" }
+    for _, id in ipairs(r.where) do argv[#argv + 1] = id end
+    runner.run(argv, root, function(out_lines)
+      local rows = _decode(out_lines, "sites")
+      if not rows then
+        vim.notify("fox-symdeps · --where resolver FAILED to run (refusal, not empty facts)",
+                   vim.log.levels.ERROR)
+      else
+        local p = M.partition(rows)
+        vim.list_extend(found, p.found)
+        vim.list_extend(missing, p.missing)
+      end
+      done_one()
+    end)
+  end
+  if #r.resolve > 0 then
+    local argv = { "python3", "tools/citable_ids.py", "--resolve" }
+    for _, nm in ipairs(r.resolve) do argv[#argv + 1] = nm end
+    runner.run(argv, root, function(out_lines)
+      local rows = _decode(out_lines, "resolutions")
+      if not rows then
+        vim.notify("fox-symdeps · --resolve resolver FAILED to run (refusal, not empty facts)",
+                   vim.log.levels.ERROR)
+      else
+        for _, row in ipairs(rows) do
+          if row[2] == "RESOLVED" then
+            found[#found + 1] = { id = row[1], file = row[3], line = 1 }
+          elseif row[2] == "RENAMED" then
+            vim.notify(("fox-symdeps · %s RENAMED → %s (re-run the miner to repair the tag)")
+                       :format(row[1], row[3]), vim.log.levels.INFO)
+          else
+            missing[#missing + 1] = row[1]
+          end
+        end
+      end
+      done_one()
+    end)
+  end
 end
 
 return M
