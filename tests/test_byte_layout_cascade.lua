@@ -41,15 +41,41 @@ truthy(A.alignas == nil, "'alignas' is NOT indexed as a bogus struct name")
 local root = vim.fn.expand("~/code/FoxML_Trader_v2")
 if vim.fn.isdirectory(root) == 1 then
   print("== Test B: real engine — embedders resolve to real file:line, not :1 ==")
+  -- SELF-DERIVED expected lines (2026-08-10): the old integer pins (130/144/72) went stale the
+  -- moment leaf-2's corpus re-ground grew the files above them — a tally, not an anchor
+  -- (feedback_name_members_never_tallies applied to tests). The truth being asserted is "the
+  -- resolver's line is where the DEFINITION actually sits (never :1)" — so scan the resolved
+  -- file for the definition independently and compare against THAT.
+  local function def_line(path, name)
+    local i = 0
+    for l in io.lines(path) do
+      i = i + 1
+      -- anywhere-in-line (same-line `template <…> struct X {` counts); skip comment lines
+      -- and forward declarations (`struct X;`)
+      if not l:match("^%s*//") then
+        local hit = l:match("struct%s+" .. name .. "%f[%W]")
+                    or l:match("class%s+" .. name .. "%f[%W]")
+                    or l:match("struct%s+alignas%b()%s*" .. name .. "%f[%W]")
+        if hit and not l:match(name .. "%s*;") then return i end
+      end
+    end
+    return nil
+  end
   local B = P._build_def_index(root)
   truthy(B.PortfolioController, "PortfolioController resolved")
   eq(B.PortfolioController.file, root .. "/CoreFrameworks/PortfolioController.hpp", "PortfolioController file")
-  eq(B.PortfolioController.line, 130, "PortfolioController line")
+  local want_pc = def_line(B.PortfolioController.file, "PortfolioController")
+  truthy(want_pc and want_pc > 1, "PortfolioController definition findable by independent scan")
+  eq(B.PortfolioController.line, want_pc, "PortfolioController line (self-derived)")
   truthy(B.RunControlState, "RunControlState (transitive) resolved")
-  eq(B.RunControlState.line, 144, "RunControlState line")
+  local want_rcs = def_line(B.RunControlState.file, "RunControlState")
+  truthy(want_rcs and want_rcs > 1, "RunControlState definition findable by independent scan")
+  eq(B.RunControlState.line, want_rcs, "RunControlState line (self-derived)")
   truthy(B.BookImbalanceHistory, "BookImbalanceHistory (alignas(64)) resolved — was :1 in the HUD")
   eq(B.BookImbalanceHistory.file, root .. "/ML_Headers/FlowFeatures.hpp", "BookImbalanceHistory file")
-  eq(B.BookImbalanceHistory.line, 72, "BookImbalanceHistory line")
+  local want_bih = def_line(B.BookImbalanceHistory.file, "BookImbalanceHistory")
+  truthy(want_bih and want_bih > 1, "BookImbalanceHistory definition findable by independent scan")
+  eq(B.BookImbalanceHistory.line, want_bih, "BookImbalanceHistory line (self-derived)")
 
   print("== Test C: build_tree wires resolution through both tiers ==")
   local tree = P._build_tree(
@@ -59,10 +85,10 @@ if vim.fn.isdirectory(root) == 1 then
     root)
   local direct = tree[1].files[1].entries[1]
   truthy(direct.line ~= 1, "direct embedder NOT on :1 (was the bug)")
-  eq(direct.line, 130, "direct embedder resolved line")
+  eq(direct.line, want_pc, "direct embedder resolved line (self-derived)")
   local trans = tree[2].files[1].entries[1]
   truthy(trans.file ~= "(transitive)", "transitive embedder is now jumpable (has a real file)")
-  eq(trans.line, 144, "transitive embedder resolved line")
+  eq(trans.line, want_rcs, "transitive embedder resolved line (self-derived)")
   local site = tree[3].files[1].entries[1]
   eq(site.line, 44, "enforcement site line preserved (untouched)")
 else

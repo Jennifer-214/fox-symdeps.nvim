@@ -27,6 +27,22 @@ M.registry = {
     run = function() require("fox-symdeps.panel").compare() end },
   { label = "Preview derived facts", all = true,
     run = function() vim.cmd("FoxSymdepsDerived") end },
+  { label = "Docs — [REFERENCE] → open the defining doc (float beside code)", all = true,
+    -- context-gated (§6's rule): shown only when the enclosing unit actually carries the
+    -- [REFERENCE] axis this affordance renders (§9's law)
+    when = function()
+      local buf = vim.api.nvim_get_current_buf()
+      local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
+      local ok, tc = pcall(require, "fox-symdeps.tagcontext")
+      if not ok then return false end
+      local blk = tc.enclosing_block(buf, row0)
+      if not blk then return false end
+      for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, blk.opener, blk.closer + 1, false)) do
+        if l:find("[REFERENCE]_", 1, true) then return true end
+      end
+      return false
+    end,
+    run = function() require("fox-symdeps.docview").open() end },
   -- function
   { label = "Write [DERIVED] call-graph in place (+ save)", types = { ["function"] = true, struct = true },
     writes = "comments", -- T6: tag-comments only, never logic — the ✎ tier
