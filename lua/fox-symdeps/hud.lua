@@ -389,6 +389,11 @@ function Hud:_help()
     vim.keymap.set("n", k, function() pcall(vim.api.nvim_win_close, win, true) end,
       { buffer = buf, nowait = true, silent = true })
   end
+  -- transient convention (fleet S5 — this float was the one orphan): click/focus-away closes
+  vim.api.nvim_create_autocmd("BufLeave", {
+    buffer = buf, once = true,
+    callback = function() pcall(vim.api.nvim_win_close, win, true) end,
+  })
 end
 
 function Hud:_move(dir)

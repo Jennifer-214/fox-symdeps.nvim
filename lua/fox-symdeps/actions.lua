@@ -85,7 +85,28 @@ M.registry = {
 -- what's valid") — evaluated against the EXPLICIT invoker ctx (fleet P2: the HUD invokes from
 -- its scratch buffer, so implicit current-window gates lied there). pcall-safe: a broken gate
 -- hides its item rather than breaking the menu.
+-- One-time registration validation (fleet K3): every `types` key must be a REAL unit type
+-- from the grammar payload — an unknown key can never match, so it warns (dev-time) instead
+-- of silently gating a row out of existence. Runs at the first for_type once the model is up.
+local types_validated = false
+local function validate_types()
+  if types_validated then return end
+  local ok, nmod = pcall(require, "fox-symdeps.nodemodel")
+  local known = ok and nmod.unit_types and nmod.unit_types() or nil
+  if not known then return end          -- model not up yet; re-check on a later call
+  types_validated = true
+  for _, a in ipairs(M.registry) do
+    for t in pairs(a.types or {}) do
+      if not known[t] then
+        vim.notify(("fox-symdeps · actions row %q gates on unknown unit type %q")
+                   :format(a.id or a.label, t), vim.log.levels.WARN)
+      end
+    end
+  end
+end
+
 function M.for_type(t, ctx)
+  validate_types()
   local out = {}
   for _, a in ipairs(M.registry) do
     if a.all or (a.types and a.types[t]) then

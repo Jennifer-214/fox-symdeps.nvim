@@ -49,12 +49,26 @@ function M.open(items, opts)
   -- this to keep themselves alive while their child menu is open (hud float BufLeave guard).
   vim.b[buf].fox_symdeps_menu = true
 
+  -- SMALL-CHOOSER sizing (fleet S1/S2 — the ui-token seed): content-driven, then CLAMPED to
+  -- the editor (an unclamped float wraps its rows while the height stays #lines — rows pushed
+  -- out of view WAS the cramping class); a too-narrow dock anchor falls back to cursor
+  -- placement instead of spilling over the code window.
   local place = M._placement(opts.anchor_win)
-  place.width, place.height = width, #lines
+  local maxw, maxh = vim.o.columns - 4, vim.o.lines - 4
+  if place.relative == "win" and opts.anchor_win and vim.api.nvim_win_is_valid(opts.anchor_win) then
+    local aw = vim.api.nvim_win_get_width(opts.anchor_win)
+    if aw < 40 then
+      place = { relative = "cursor", row = 1, col = 0 }
+    else
+      maxw = math.min(maxw, aw - 4)
+    end
+  end
+  place.width, place.height = math.min(width, maxw), math.min(#lines, maxh)
   place.style, place.border = "minimal", "rounded"
   place.title = opts.title and (" " .. opts.title .. " ") or nil
   if place.title then place.title_pos = "center" end
   local win = vim.api.nvim_open_win(buf, true, place)
+  vim.wo[win].wrap = false   -- a row must never wrap out of the row count (fleet S1)
   vim.wo[win].cursorline = true
   vim.wo[win].cursorlineopt = "line" -- highlight the WHOLE row, not just the number column
   -- the selection BAR: reuse the HUD's own FoxSymdepsSelection (bright peach row + dark ink, bold) so

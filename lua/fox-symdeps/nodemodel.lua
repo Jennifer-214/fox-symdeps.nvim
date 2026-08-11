@@ -115,9 +115,31 @@ local function decode(stdout)
     end
   end
   if n == 0 then return nil end
+  -- fleet K3: decode the four previously-unclaimed vocab tables (the payload always carried
+  -- them; only unit_types was read). Name-column sets; a missing/empty table decodes to nil.
+  local function names_of(tbl)
+    local t = env.payload and env.payload[tbl]
+    if not (t and t.schema and t.rows) then return nil end
+    local nci
+    for i, col in ipairs(t.schema) do
+      if col == "name" then nci = i break end
+    end
+    if not nci then return nil end
+    local set, k = {}, 0
+    for _, row in ipairs(t.rows) do
+      if type(row[nci]) == "string" then set[row[nci]] = true; k = k + 1 end
+    end
+    return k > 0 and set or nil
+  end
   return {
     closable = closable,
     openers = openers,
+    vocab = {
+      ref_subcats = names_of("ref_subcats"),
+      categories  = names_of("categories"),
+      concern     = names_of("concern"),
+      surface     = names_of("surface"),
+    },
     meta = {
       git_head = env.target and env.target.git_head,
       version = env.producer and env.producer.version,
@@ -164,6 +186,22 @@ function M.setup(opts)
   cfg.engine_dirname = opts.engine_dirname
   cache, last_miss = nil, 0
   pcall(fetch_async, nil) -- silent warm probe; no boot-time nagging on failure
+end
+
+--- Vocab sets from the grammar payload (fleet K3) — nil when foxtag is unavailable.
+function M.vocab()
+  local m = M.model()
+  return m and m.vocab or nil
+end
+
+--- Set of LOWERCASED unit-type names — the gating axis actions.lua `types` keys validate
+--- against (§9's "cite your axis or it does not belong", made mechanical). nil sans model.
+function M.unit_types()
+  local m = M.model()
+  if not m then return nil end
+  local t = {}
+  for nm in pairs(m.closable) do t[nm:lower()] = true end
+  return t
 end
 
 --- The node model, or nil when foxtag is unavailable. Memoized; re-probes after a failure.

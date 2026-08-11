@@ -46,12 +46,20 @@ end
 local DOC_SUBCATS = { DESIGN_SPEC = true, MEMORY = true, PLAN = true }
 local FREE_SUBCATS = { AUDIT = true, SOURCE = true, URL = true }
 function M.route(entries)
+  -- vocab-validated (fleet K3): an UNFENCED subcat is skipped-NAMED, never silently defaulted
+  -- into --where. nil-safe: without the grammar payload (tests / foxtag-less checkout) the
+  -- known-set check is simply not applied.
+  local okn, nmod = pcall(require, "fox-symdeps.nodemodel")
+  local fenced = okn and nmod.vocab and nmod.vocab()
+  fenced = fenced and fenced.ref_subcats or nil
   local r = { where = {}, resolve = {}, skipped = {} }
   for _, e in ipairs(entries) do
     if DOC_SUBCATS[e.subcat] then
       r.resolve[#r.resolve + 1] = e.id:match("%.md$") and e.id or (e.id .. ".md")
     elseif FREE_SUBCATS[e.subcat] then
       r.skipped[#r.skipped + 1] = ("%s:%s"):format(e.subcat, e.id)
+    elseif fenced and not fenced[e.subcat] then
+      r.skipped[#r.skipped + 1] = ("%s:%s (unknown subcat)"):format(e.subcat, e.id)
     else
       r.where[#r.where + 1] = e.id
     end
@@ -102,6 +110,7 @@ function M.pin(site)
   pcall(vim.api.nvim_win_set_cursor, win, { math.max(site.line, 1), 0 })
   vim.wo[win].cursorline = true
   vim.api.nvim_win_set_width(win, math.max(60, math.floor(vim.o.columns * 0.42)))
+  vim.wo[win].winfixwidth = true   -- survives `wincmd =` rebalances (fleet S6)
 end
 
 -- Float the REAL buffer of the defining doc beside the code (right edge), cursor on the
@@ -210,6 +219,9 @@ function M.open()
   local found, missing = {}, {}
   local pending = (#r.where > 0 and 1 or 0) + (#r.resolve > 0 and 1 or 0)
   if pending == 0 then return end
+  -- perceived-latency chip (operator polish #2): the resolver round-trip is ~200-500ms — name
+  -- the wait so the gap reads as work, not deadness
+  vim.notify(("fox-symdeps · resolving %d ref(s)…"):format(#entries), vim.log.levels.INFO)
 
   local function finish()
     if #missing > 0 then
