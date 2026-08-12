@@ -46,14 +46,16 @@ function M.open(palette)
       local f = vim.api.nvim_buf_get_name(origin_buf)
       return (f ~= "" and vim.fs.root(f, { ".git", "compile_commands.json" })) or vim.fn.getcwd()
     end)(),
+    -- default-CLOSED drops (operator §9, 2026-08-11 — "drop downs are default closed"); the
+    -- header counts tell the story, `l` opens what you want.
     tiles = {
-      { key = "widest", glyph = "⊃", label = "Widest headers", hint = "include blast-radius",
-        state = "loading", collapsed = false, rows = {} },
-      { key = "biggest", glyph = "▦", label = "Biggest structs", hint = "cache-residency · sizeof",
-        state = "loading", collapsed = false, rows = {} },
+      { key = "widest", glyph = "⊃", label = "Widest headers", hint = "include blast-radius · grouped by directory",
+        state = "loading", collapsed = true, rows = {} },
+      { key = "biggest", glyph = "▦", label = "Biggest structs", hint = "cache-residency · [SIZE] tag corpus (repo-wide)",
+        state = "loading", collapsed = true, rows = {} },
       { key = "straddlers", glyph = "▲", label = "Cache-line straddlers",
-        hint = "≤64B fields crossing a 64B line · placement / false-sharing risk",
-        state = "loading", collapsed = false, rows = {} },
+        hint = "written [STRADDLE] facts on the converted corpus · placement / false-sharing risk",
+        state = "loading", collapsed = true, rows = {} },
     },
     items = {},
     sel = 1,
@@ -138,66 +140,108 @@ function Dash:_load(refresh)
   for _, t in ipairs(self.tiles) do t.state = "loading"; t.rows = {} end
   self:render()
 
-  -- widest headers — grep, near-instant.
+  -- widest headers — grep, near-instant; GROUPED BY DIRECTORY (operator §9, 2026-08-11),
+  -- dirs ordered by their subtotal, entries count-desc within.
   vim.schedule(function()
     if self.closed then return end
     local ranked = require("fox-symdeps.aggregate").widest_headers(self.root, 40)
     local prefix = self.root:gsub("/*$", "") .. "/"
-    local rows = {}
+    local groups, order = {}, {}
     for _, h in ipairs(ranked) do
       local rel = h.path or ""
       if rel:sub(1, #prefix) == prefix then rel = rel:sub(#prefix + 1) end
-      local dir = rel:match("^(.*)/[^/]+$") or "" -- dirname, root-relative ("" for a top-level header)
+      local dir = rel:match("^(.*)/[^/]+$") or "(root)"
+      if not groups[dir] then groups[dir] = { total = 0, entries = {} }; order[#order + 1] = dir end
+      groups[dir].total = groups[dir].total + (h.count or 0)
+      table.insert(groups[dir].entries, h)
+    end
+    table.sort(order, function(a, b) return groups[a].total > groups[b].total end)
+    local rows = {}
+    for _, dir in ipairs(order) do
+      local g = groups[dir]
       rows[#rows + 1] = {
-        text = ("%4d  %-30s %s"):format(h.count, h.header, dir),
-        loc = h.path and { file = h.path, line = 1 } or nil,
+        text = ("▸ %-24s %d header(s) · %d includer(s)"):format(dir, #g.entries, g.total),
+        hl = "FoxSymdepsHeader",
       }
+      for _, h in ipairs(g.entries) do
+        rows[#rows + 1] = {
+          text = ("  %4d  %s"):format(h.count, h.header),
+          loc = h.path and { file = h.path, line = 1 } or nil,
+        }
+      end
     end
     self:_set("widest", #ranked > 0 and "ok" or "empty", rows)
   end)
 
-  -- biggest structs + straddlers — one compile of the origin TU feeds both tiles.
-  local rl = require("fox-symdeps.recordlayout")
-  rl.census(self.origin_buf, function(res)
+  -- biggest structs + straddlers — from the [DERIVED] TAG CORPUS, repo-wide (operator catch
+  -- 2026-08-11: the old origin-TU compile showed 16-32B "biggest" structs in a codebase whose
+  -- giants are 50KB+, and "straddlers (0)" against 4 live baseline straddlers — origin-scoped
+  -- facts presented as codebase-wide). The [SIZE]/[STRADDLE] tags are check_cache_layout's
+  -- tool-owned, CI-guarded truth: one producer, this tile is just another consumer (§9). One
+  -- rg pass, no compile, whole corpus, can never disagree with the source.
+  require("fox-symdeps.runner").run(
+    { "rg", "-n", "--no-heading", "--sort", "path",
+      "-e", "\\[STRUCT\\]_\\[", "-e", "\\[SIZE\\]_\\[", "-e", "\\[STRADDLE\\]_\\[",
+      "--glob", "*.hpp", "--glob", "*.cpp",
+      "--glob", "!tools/**", "--glob", "!DOCS/**", "--glob", "!build*/**" },
+    self.root, function(lines)
     if self.closed then return end
-    if res.error then
-      local err = { { text = res.error, hl = "FoxSymdepsAlarm" } }
+    if not lines then
+      local err = { { text = "tag-corpus scan failed (rg unavailable?)", hl = "FoxSymdepsAlarm" } }
       self:_set("biggest", "error", err)
       return self:_set("straddlers", "error", err)
     end
-    local recs = res.records
+    local structs, cur = {}, nil
+    for _, l in ipairs(lines) do
+      local file, lno, rest = l:match("^([^:]+):(%d+):(.*)$")
+      if file then
+        local nm = rest:match("%[STRUCT%]_%[([^%]]+)%]")
+        if nm and not rest:match("%[END_STRUCT%]") then
+          cur = { name = nm, file = file, line = tonumber(lno) }
+          structs[#structs + 1] = cur
+        elseif cur and file == cur.file then
+          local sz = rest:match("%[SIZE%]_%[(%d+)B%]")
+          local straddle = rest:match("%[STRADDLE%]_%[(.+)%]%s*$")
+          if sz then cur.size = tonumber(sz) end
+          if straddle and straddle ~= "none" then cur.straddle = straddle end
+        end
+      end
+    end
 
-    -- straddlers first (order-independent), then sort recs by size for the biggest tile
-    local st = rl.straddlers(recs)
     local srows = {}
-    for _, s in ipairs(st.report) do
-      local parts = {}
-      for _, f in ipairs(s.fields) do parts[#parts + 1] = ("%s @%d %dB"):format(f.name, f.off, f.size) end
-      srows[#srows + 1] = {
-        text = ("%-34s  %s"):format(s.name, table.concat(parts, ", ")),
-        hl = "FoxSymdepsWarn", struct = base_ident(s.name),
-      }
+    for _, s in ipairs(structs) do
+      if s.straddle then
+        local unv = s.straddle:match("unverified")
+        srows[#srows + 1] = {
+          text = ("%-28s  %s"):format(s.name, s.straddle),
+          hl = unv and "FoxSymdepsBadge" or "FoxSymdepsWarn",
+          loc = { file = self.root .. "/" .. s.file, line = s.line },
+        }
+      end
     end
-    if st.partial > 0 then -- honest coverage: never let "no straddlers" hide un-analyzed structs
-      srows[#srows + 1] = {
-        text = ("· %d struct(s) skipped — a field of unresolvable type (opaque typedef / enum)"):format(st.partial),
-        hl = "FoxSymdepsBadge",
-      }
-    end
-    self:_set("straddlers", (#st.report > 0 or st.partial > 0) and "ok" or "empty", srows)
+    self:_set("straddlers", #srows > 0 and "ok" or "empty", srows)
 
-    table.sort(recs, function(a, b) return a.size > b.size end)
+    local sized = {}
+    for _, s in ipairs(structs) do
+      if s.size then sized[#sized + 1] = s end
+    end
+    table.sort(sized, function(a, b) return a.size > b.size end)
     local rows = {}
-    for i = 1, math.min(40, #recs) do
-      local r = recs[i]
+    for i = 1, math.min(40, #sized) do
+      local r = sized[i]
       local v = residency(r.size)
       rows[#rows + 1] = {
-        text = ("%8s  %-40s %s"):format(human(r.size), r.name, v.note),
+        text = ("%8s  %-36s %s"):format(human(r.size), r.name, v.note),
         hl = v.hl,
-        struct = base_ident(r.name),
+        loc = { file = self.root .. "/" .. r.file, line = r.line },
       }
     end
-    self:_set("biggest", #recs > 0 and "ok" or "empty", rows)
+    rows[#rows + 1] = {
+      text = ("· facts = the written [DERIVED] corpus (%d converted blocks; check_cache_layout owns them)")
+             :format(#structs),
+      hl = "FoxSymdepsBadge",
+    }
+    self:_set("biggest", #sized > 0 and "ok" or "empty", rows)
   end)
 end
 
