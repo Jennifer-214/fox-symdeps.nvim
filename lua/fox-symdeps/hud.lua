@@ -547,6 +547,15 @@ function Hud:render()
       if not file.collapsed then
         for _, e in ipairs(file.entries) do
           local tail = e.scope and (e.scope .. "  :" .. e.line) or (":" .. e.line)
+          -- R3 (north-star §6): the entry resolves to its ENCLOSING tagged unit + [TAG] list —
+          -- "PortfolioController.hpp:507" reads as "PortfolioController_Init [ENGINE SLOW_PATH]".
+          -- Degrades to the clangd scope on unconverted files (§9: derive, never invent).
+          local u = require("fox-symdeps.unitindex").at(file.file, e.line)
+          if u then
+            local tags = (u.tags and #u.tags > 0)
+                         and ("  [" .. table.concat(u.tags, " ") .. "]") or ""
+            tail = ("%s%s  :%d"):format(u.name, tags, e.line)
+          end
           if e.broken then
             add_leaf("     ▲   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
           else
