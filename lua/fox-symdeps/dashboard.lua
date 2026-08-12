@@ -50,12 +50,12 @@ function M.open(palette)
     -- header counts tell the story, `l` opens what you want.
     tiles = {
       { key = "widest", glyph = "⊃", label = "Widest headers", hint = "include blast-radius · grouped by directory",
-        state = "loading", collapsed = true, rows = {} },
+        state = "loading", collapsed = true, rows = {}, folds = {} },
       { key = "biggest", glyph = "▦", label = "Biggest structs", hint = "cache-residency · [SIZE] tag corpus (repo-wide)",
-        state = "loading", collapsed = true, rows = {} },
+        state = "loading", collapsed = true, rows = {}, folds = {} },
       { key = "straddlers", glyph = "▲", label = "Cache-line straddlers",
         hint = "written [STRADDLE] facts on the converted corpus · placement / false-sharing risk",
-        state = "loading", collapsed = true, rows = {} },
+        state = "loading", collapsed = true, rows = {}, folds = {} },
     },
     items = {},
     sel = 1,
@@ -159,12 +159,15 @@ function Dash:_load(refresh)
     local rows = {}
     for _, dir in ipairs(order) do
       local g = groups[dir]
+      local gid = "widest:" .. dir
       rows[#rows + 1] = {
-        text = ("▸ %-24s %d header(s) · %d includer(s)"):format(dir, #g.entries, g.total),
+        group = gid,
+        label = ("%-24s %d header(s) · %d includer(s)"):format(dir, #g.entries, g.total),
         hl = "FoxSymdepsHeader",
       }
       for _, h in ipairs(g.entries) do
         rows[#rows + 1] = {
+          parent = gid,
           text = ("  %4d  %s"):format(h.count, h.header),
           loc = h.path and { file = h.path, line = 1 } or nil,
         }
@@ -210,7 +213,7 @@ function Dash:_load(refresh)
 
     -- directory → file → list (the operator's settled format rule, 2026-08-11), heaviest-first
     -- at every level. Shared shape for both fact tiles.
-    local function grouped_rows(list, weight, render)
+    local function grouped_rows(tile_key, list, weight, render)
       local dirs, dorder = {}, {}
       for _, r in ipairs(list) do
         local dir = r.file:match("^(.*)/[^/]+$") or "(root)"
@@ -227,13 +230,20 @@ function Dash:_load(refresh)
       local rows = {}
       for _, dir in ipairs(dorder) do
         local d = dirs[dir]
+        local did = tile_key .. ":" .. dir
         table.sort(d.forder, function(a, b) return d.files[a].w > d.files[b].w end)
-        rows[#rows + 1] = { text = ("▸ %s"):format(dir), hl = "FoxSymdepsHeader" }
+        rows[#rows + 1] = { group = did, label = dir, hl = "FoxSymdepsHeader" }
         for _, fname in ipairs(d.forder) do
           local f = d.files[fname]
+          local fid = did .. "/" .. fname
           table.sort(f.list, function(a, b) return weight(a) > weight(b) end)
-          rows[#rows + 1] = { text = ("  %s  (%d)"):format(fname, #f.list), hl = "FoxSymdepsBadge" }
-          for _, r in ipairs(f.list) do rows[#rows + 1] = render(r) end
+          rows[#rows + 1] = { group = fid, parent = did,
+                              label = ("  %s  (%d)"):format(fname, #f.list), hl = "FoxSymdepsBadge" }
+          for _, r in ipairs(f.list) do
+            local row = render(r)
+            row.parent = fid
+            rows[#rows + 1] = row
+          end
         end
       end
       return rows
@@ -243,7 +253,7 @@ function Dash:_load(refresh)
     for _, s in ipairs(structs) do
       if s.straddle then stradd[#stradd + 1] = s end
     end
-    local srows = grouped_rows(stradd,
+    local srows = grouped_rows("straddlers", stradd,
       function(s) return s.straddle:match("unverified") and 1 or 2 end,   -- verified facts outrank
       function(s)
         local unv = s.straddle:match("unverified")
@@ -260,7 +270,7 @@ function Dash:_load(refresh)
     table.sort(sized, function(a, b) return a.size > b.size end)
     local top = {}
     for i = 1, math.min(60, #sized) do top[i] = sized[i] end
-    local rows = grouped_rows(top,
+    local rows = grouped_rows("biggest", top,
       function(r) return r.size end,
       function(r)
         local v = residency(r.size)
@@ -296,9 +306,10 @@ function Dash:render()
   local function add_tile(t, text)
     self.items[#self.items + 1] = { bufline = add(text, "FoxSymdepsHeader"), tile = t }
   end
-  local function add_row(row)
+  local function add_row(row, t)
     self.items[#self.items + 1] =
-      { bufline = add("      " .. row.text, row.hl or "FoxSymdepsBadge"), loc = row.loc, struct = row.struct }
+      { bufline = add("      " .. row.text, row.hl or "FoxSymdepsBadge"),
+        loc = row.loc, struct = row.struct, parent_grp = row.parent, tile_ref = t }
   end
 
   add("")
@@ -319,7 +330,36 @@ function Dash:render()
       elseif t.state == "empty" then
         add("      — nothing found", "FoxSymdepsBadge")
       else
-        for _, row in ipairs(t.rows) do add_row(row) end
+        -- per-GROUP folds (dir → file → list; groups precede their children in row order).
+        -- Default CLOSED per the operator rule; a folded ancestor hides the whole subtree.
+        local gparent = {}   -- group id → parent id (built as encountered)
+        local function folded(id)
+          local f = t.folds[id]
+          if f == nil then f = true end
+          return f
+        end
+        local function chain_hidden(pid)
+          while pid do
+            if folded(pid) then return true end
+            pid = gparent[pid]
+          end
+          return false
+        end
+        for _, row in ipairs(t.rows) do
+          if row.group then
+            gparent[row.group] = row.parent
+            if not chain_hidden(row.parent) then
+              local indent = row.parent and "        " or "      "
+              self.items[#self.items + 1] = {
+                bufline = add(indent .. (folded(row.group) and "▸ " or "▾ ") .. row.label,
+                              row.hl or "FoxSymdepsHeader"),
+                grp = row.group, tile_ref = t,
+              }
+            end
+          elseif not chain_hidden(row.parent) then
+            add_row(row, t)
+          end
+        end
       end
     end
     add("")
@@ -358,7 +398,23 @@ end
 
 function Dash:_collapse(want)
   local it = self.items[self.sel]
-  if it and it.tile then it.tile.collapsed = want; self:render() end
+  if not it then return end
+  if it.tile then
+    it.tile.collapsed = want
+    return self:render()
+  end
+  if it.grp then                                   -- fold the group under the cursor
+    it.tile_ref.folds[it.grp] = want
+    return self:render()
+  end
+  if it.parent_grp and want then                   -- h on a child folds its parent + lands on it
+    it.tile_ref.folds[it.parent_grp] = true
+    self:render()
+    for i, item in ipairs(self.items) do
+      if item.grp == it.parent_grp then self.sel = i; break end
+    end
+    return self:render()
+  end
 end
 
 -- a window to jump into: the origin code window, else any other window.
@@ -387,6 +443,12 @@ function Dash:_activate()
   if not it then return end
   if it.tile then
     it.tile.collapsed = not it.tile.collapsed
+    return self:render()
+  end
+  if it.grp then                                   -- group rows toggle (l/⏎ open, h closes)
+    local cur = it.tile_ref.folds[it.grp]
+    if cur == nil then cur = true end
+    it.tile_ref.folds[it.grp] = not cur
     return self:render()
   end
   local loc = it.loc
