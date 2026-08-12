@@ -65,6 +65,16 @@ M.registry = {
       return okd and #dv.file_header_ids(buf) > 0
     end,
     run = function() require("fox-symdeps.docview").open() end },
+  { id = "tag-add", label = "Add [TAG] — browse the vocab, merge into this unit", all = true,
+    writes = "comments",   -- ✎ tier: a tag-comment merge; the picker DERIVES from the vocab (§9)
+    when = function(ctx)
+      local ok, tc = pcall(require, "fox-symdeps.tagcontext")
+      if not ok then return false end
+      local buf = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
+      local row0 = (ctx and ctx.line and (ctx.line - 1)) or (vim.api.nvim_win_get_cursor(0)[1] - 1)
+      return tc.enclosing_block(buf, row0) ~= nil
+    end,
+    run = function(ctx) require("fox-symdeps.tagadd").add(ctx) end },
   -- function
   { label = "Write [DERIVED] call-graph in place (+ save)", types = { ["function"] = true, struct = true },
     writes = "comments", -- T6: tag-comments only, never logic — the ✎ tier
