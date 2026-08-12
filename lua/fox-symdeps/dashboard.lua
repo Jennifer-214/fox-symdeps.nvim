@@ -208,34 +208,66 @@ function Dash:_load(refresh)
       end
     end
 
-    local srows = {}
-    for _, s in ipairs(structs) do
-      if s.straddle then
-        local unv = s.straddle:match("unverified")
-        srows[#srows + 1] = {
-          text = ("%-28s  %s"):format(s.name, s.straddle),
-          hl = unv and "FoxSymdepsBadge" or "FoxSymdepsWarn",
-          loc = { file = self.root .. "/" .. s.file, line = s.line },
-        }
+    -- directory → file → list (the operator's settled format rule, 2026-08-11), heaviest-first
+    -- at every level. Shared shape for both fact tiles.
+    local function grouped_rows(list, weight, render)
+      local dirs, dorder = {}, {}
+      for _, r in ipairs(list) do
+        local dir = r.file:match("^(.*)/[^/]+$") or "(root)"
+        local fname = r.file:match("([^/]+)$") or r.file
+        local d = dirs[dir]
+        if not d then d = { w = 0, files = {}, forder = {} }; dirs[dir] = d; dorder[#dorder + 1] = dir end
+        d.w = math.max(d.w, weight(r))
+        local f = d.files[fname]
+        if not f then f = { w = 0, list = {} }; d.files[fname] = f; d.forder[#d.forder + 1] = fname end
+        f.w = math.max(f.w, weight(r))
+        f.list[#f.list + 1] = r
       end
+      table.sort(dorder, function(a, b) return dirs[a].w > dirs[b].w end)
+      local rows = {}
+      for _, dir in ipairs(dorder) do
+        local d = dirs[dir]
+        table.sort(d.forder, function(a, b) return d.files[a].w > d.files[b].w end)
+        rows[#rows + 1] = { text = ("▸ %s"):format(dir), hl = "FoxSymdepsHeader" }
+        for _, fname in ipairs(d.forder) do
+          local f = d.files[fname]
+          table.sort(f.list, function(a, b) return weight(a) > weight(b) end)
+          rows[#rows + 1] = { text = ("  %s  (%d)"):format(fname, #f.list), hl = "FoxSymdepsBadge" }
+          for _, r in ipairs(f.list) do rows[#rows + 1] = render(r) end
+        end
+      end
+      return rows
     end
-    self:_set("straddlers", #srows > 0 and "ok" or "empty", srows)
+
+    local stradd = {}
+    for _, s in ipairs(structs) do
+      if s.straddle then stradd[#stradd + 1] = s end
+    end
+    local srows = grouped_rows(stradd,
+      function(s) return s.straddle:match("unverified") and 1 or 2 end,   -- verified facts outrank
+      function(s)
+        local unv = s.straddle:match("unverified")
+        return { text = ("    %-26s  %s"):format(s.name, s.straddle),
+                 hl = unv and "FoxSymdepsBadge" or "FoxSymdepsWarn",
+                 loc = { file = self.root .. "/" .. s.file, line = s.line } }
+      end)
+    self:_set("straddlers", #stradd > 0 and "ok" or "empty", srows)
 
     local sized = {}
     for _, s in ipairs(structs) do
       if s.size then sized[#sized + 1] = s end
     end
     table.sort(sized, function(a, b) return a.size > b.size end)
-    local rows = {}
-    for i = 1, math.min(40, #sized) do
-      local r = sized[i]
-      local v = residency(r.size)
-      rows[#rows + 1] = {
-        text = ("%8s  %-36s %s"):format(human(r.size), r.name, v.note),
-        hl = v.hl,
-        loc = { file = self.root .. "/" .. r.file, line = r.line },
-      }
-    end
+    local top = {}
+    for i = 1, math.min(60, #sized) do top[i] = sized[i] end
+    local rows = grouped_rows(top,
+      function(r) return r.size end,
+      function(r)
+        local v = residency(r.size)
+        return { text = ("    %8s  %-32s %s"):format(human(r.size), r.name, v.note),
+                 hl = v.hl,
+                 loc = { file = self.root .. "/" .. r.file, line = r.line } }
+      end)
     rows[#rows + 1] = {
       text = ("· facts = the written [DERIVED] corpus (%d converted blocks; check_cache_layout owns them)")
              :format(#structs),
