@@ -71,4 +71,61 @@ function M.roam(palette)
   end)
 end
 
+-- Browse units BY [TAG] (north-star 0.4 "browse-units-by-tag"; §9: BOTH pickers derive — the
+-- tag list from the grammar vocab, the unit list from the WRITTEN corpus). Rides vim.ui.select
+-- (your fzf) like the other pickers.
+function M.by_tag(_palette)
+  local uihelper = require("fox-symdeps.ui")
+  local okn, nmod = pcall(require, "fox-symdeps.nodemodel")
+  local vocab = okn and nmod.vocab and nmod.vocab() or nil
+  local toks, seen = {}, {}
+  for _, set in pairs({ vocab and vocab.concern or {}, vocab and vocab.surface or {} }) do
+    for name in pairs(set) do
+      if not seen[name] then seen[name] = true; toks[#toks + 1] = name end
+    end
+  end
+  table.sort(toks)
+  if #toks == 0 then
+    return uihelper.notify_raw("browse-by-tag: vocab unavailable (foxtag unreachable)",
+                               vim.log.levels.WARN)
+  end
+  vim.ui.select(toks, { prompt = "Browse units by [TAG]" }, function(tok)
+    if not tok then return end
+    local f = vim.api.nvim_buf_get_name(0)
+    local root = (f ~= "" and vim.fs.root(f, { ".git", "compile_commands.json" })) or vim.fn.getcwd()
+    require("fox-symdeps.runner").run(
+      { "rg", "-n", "--no-heading", "-e", "\\[TAG\\]_\\[.*\\[" .. tok .. "\\]",
+        "--glob", "*.hpp", "--glob", "*.cpp",
+        "--glob", "!tools/**", "--glob", "!DOCS/**", "--glob", "!build*/**" },
+      root, function(lines)
+        if not lines or #lines == 0 then
+          return uihelper.notify_raw("browse-by-tag: no unit carries [" .. tok .. "]",
+                                     vim.log.levels.INFO)
+        end
+        local unitindex = require("fox-symdeps.unitindex")
+        local items = {}
+        for _, l in ipairs(lines) do
+          local file, lno = l:match("^([^:]+):(%d+):")
+          if file then
+            local abs = root .. "/" .. file
+            local u = unitindex.at(abs, tonumber(lno))
+            items[#items + 1] = {
+              label = u and ("%s %s — %s"):format(u.type, u.name, file) or (file .. ":" .. lno),
+              file = abs, line = (u and u.opener) or tonumber(lno),
+            }
+          end
+        end
+        table.sort(items, function(a, b) return a.label < b.label end)
+        vim.ui.select(items, {
+          prompt = ("[%s] — %d unit(s)"):format(tok, #items),
+          format_item = function(it) return it.label end,
+        }, function(choice)
+          if not choice then return end
+          vim.cmd("normal! m`")
+          vim.cmd(("edit +%d %s"):format(choice.line, vim.fn.fnameescape(choice.file)))
+        end)
+      end)
+  end)
+end
+
 return M

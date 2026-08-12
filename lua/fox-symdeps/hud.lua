@@ -479,7 +479,11 @@ function Hud:_visible_tree()
       local rel = file.rel or file.file:gsub("^" .. vim.pesc(home) .. "/", "")
       local matched = {}
       for _, e in ipairs(file.entries) do
-        if (((e.scope or "") .. " " .. rel .. " " .. e.line):lower()):find(q, 1, true) then
+        -- R3 filter axis (§6 "filterable by tag"): the enclosing unit's name + [TAG] list join
+        -- the haystack — /SLOW_PATH keeps only the slow-path consumers, /HOT the hot structs.
+        local u = require("fox-symdeps.unitindex").at(file.file, e.line)
+        local ut = u and (u.name .. " " .. table.concat(u.tags or {}, " ")) or ""
+        if (((e.scope or "") .. " " .. rel .. " " .. e.line .. " " .. ut):lower()):find(q, 1, true) then
           matched[#matched + 1] = e
         end
       end
