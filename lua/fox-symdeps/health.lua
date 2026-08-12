@@ -73,6 +73,13 @@ function M.check()
     else h.warn("no lenses registered — check lenses/ loaded at setup") end
   end
 
+  -- ── tag-native navigation deps (dashboard tiles · browse-by-tag · corpus scans) ──
+  if vim.fn.executable("rg") == 1 then
+    h.ok("rg: " .. vim.fn.exepath("rg"))
+  else
+    h.error("rg not on PATH — dashboard fact tiles + browse-by-[TAG] + notes scans need it")
+  end
+
   -- ── docview resolver chain (the [REFERENCE] doc-viewer's deps) ─────────────
   if vim.fn.executable("python3") == 1 then
     h.ok("python3: " .. vim.fn.exepath("python3"))
