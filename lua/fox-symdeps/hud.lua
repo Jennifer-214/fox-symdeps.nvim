@@ -174,6 +174,7 @@ local RESERVED_KEYS = {
   ["<C-d>"] = true, ["<C-u>"] = true, ["<Down>"] = true, ["<Up>"] = true,
   ["<Left>"] = true, ["<Right>"] = true,
   i = true, o = true, x = true, dd = true, p = true,   -- the no-op'd guard set
+  T = true,                                            -- tag-filter picker
   L = true, H = true, s = true,                        -- board layer (panel.lua)
 }
 
@@ -294,6 +295,7 @@ function Hud:_window()
   map("a", function() self:_asm() end)
   map("m", function() self:_menu() end)
   map("/", function() self:_filter() end)
+  map("T", function() self:_tag_filter() end)
   map("?", function() self:_help() end)
   for _, k in ipairs({ "i", "o", "x", "dd", "p" }) do
     map(k, function() end)
@@ -339,7 +341,7 @@ function Hud:_help()
   vim.list_extend(lines, {
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
-    "  Filter  /   filter the Consumers tree",
+    "  Filter  /  type-to-filter the tree · T  pick a [TAG] from a list (tags present in the tree)",
     "",
     "  Actions",
     "    m  action menu — per-unit ops (who-writes · false-sharing · docs · write/lock …)",
@@ -469,6 +471,37 @@ end
 
 -- The tree to render: full, or (when /filter is active) only matching roles/files/entries,
 -- force-expanded so matches are visible.
+-- T: filter-by-[TAG] PICKER (operator 2026-08-11: "i don't like typing it") — lists only the
+-- tags PRESENT in the current tree (a tag that would match nothing never shows), plus a clear
+-- row when a filter is active. Picking sets the same self.filter the `/` path uses.
+function Hud:_tag_filter()
+  local tree = self.consumers.tree or {}
+  local unitindex = require("fox-symdeps.unitindex")
+  local seen, toks = {}, {}
+  for _, role in ipairs(tree) do
+    for _, file in ipairs(role.files or {}) do
+      for _, e in ipairs(file.entries or {}) do
+        local u = unitindex.at(file.file, e.line)
+        for _, t in ipairs((u and u.tags) or {}) do
+          if not seen[t] then seen[t] = true; toks[#toks + 1] = t end
+        end
+      end
+    end
+  end
+  table.sort(toks)
+  if self.filter then table.insert(toks, 1, "✕ clear filter") end
+  if #toks == 0 then
+    return require("fox-symdeps.ui").notify_raw("no [TAG]s in this tree (consumers unconverted)",
+                                                vim.log.levels.INFO)
+  end
+  vim.ui.select(toks, { prompt = "Filter tree by [TAG]" }, function(choice)
+    if not choice then return end
+    self.filter = (choice ~= "✕ clear filter") and choice:lower() or nil
+    self.sel = 1
+    self:render()
+  end)
+end
+
 function Hud:_visible_tree()
   local tree = self.consumers.tree or {}
   if not self.filter then return tree end
