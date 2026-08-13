@@ -22,6 +22,7 @@ M.consumed = {
 -- A stale exemption (key gone from the registry) is flagged as drift too — shrink-only spirit.
 M.exempt = {
   ["findings/1"] = "envelope-level status.findings schema shared by every kind (D-384) — not a payload",
+  ["compile_command/1"] = "producer-first (compile_command.py, TD-257 substrate) — the asm/layout card view rides 0.5; flip to a consumed row when it lands",
 }
 
 -- Pure compare core (the teeth hit this directly; parity() feeds it the live registry).
