@@ -98,6 +98,30 @@ function M.check()
     end
   end
 
+  -- ── toolio payload-kind parity (TD-258 — a new producer kind must be VISIBLE here) ────────
+  do
+    local ok_tk, tk = pcall(require, "fox-symdeps.toolio_kinds")
+    if ok_tk then
+      local buf_file = vim.api.nvim_buf_get_name(0)
+      local root = (buf_file ~= "" and vim.fs.root(buf_file, { ".git", "compile_commands.json" }))
+                   or vim.fn.getcwd()
+      local r = tk.parity(root)
+      if r.refusal then
+        h.warn("toolio kind parity UNVERIFIED — " .. r.refusal .. " (refusal, not a clean pass)")
+      else
+        if #r.missing_consumer == 0 and #r.unknown_kind == 0 then
+          h.ok(("toolio payload kinds: %d in registry, every one consumed-or-exempt"):format(r.n_kinds))
+        end
+        for _, k in ipairs(r.missing_consumer) do
+          h.warn("toolio kind '" .. k .. "' has NO plugin consumer — a producer with no surface (TD-258); add its toolio_kinds.lua row when its view lands")
+        end
+        for _, k in ipairs(r.unknown_kind) do
+          h.warn("plugin claims toolio kind '" .. k .. "' but toolio_schemas.json doesn't carry it — plugin-side drift")
+        end
+      end
+    end
+  end
+
   -- ── optional integrations ──────────────────────────────────────────────────
   if pcall(require, "which-key") then
     h.ok("which-key present — <leader>d group label active")
