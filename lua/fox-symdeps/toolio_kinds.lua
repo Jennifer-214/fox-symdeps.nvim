@@ -9,6 +9,9 @@
 local M = {}
 
 -- full payload_schema_version key → who renders it. One row per consumed kind.
+-- ⚠ SHAPE CONTRACT: the repo-floor tool (tools/check_toolio_kind_parity.py) parses this block
+-- strictly — one ["kind/N"] key per line, closing `}` at column 0. Reshaping it REDs the floor
+-- with a named parse-refusal (deliberate: an unparseable registry must never pass as empty).
 M.consumed = {
   ["grammar/1"]       = { consumer = "nodemodel", what = "foxtag grammar --json → the tag node model (0.3)" },
   ["defining_site/1"] = { consumer = "docview",   what = "citable_ids --where → [REFERENCE] defining-site floats (0.4)" },
