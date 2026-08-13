@@ -175,11 +175,15 @@ end
 
 -- The entry point: resolve the enclosing unit's [REFERENCE] ids → float / chooser / refusal;
 -- unit-first, FILE-header fallback (named when it fires).
-local function _decode(out_lines, table_name)
+local function _decode(out_lines, table_name, want_kind)
   if not out_lines then return nil end
   local ok, env = pcall(vim.json.decode, table.concat(out_lines, "\n"))
-  if not ok or type(env) ~= "table"
-     or not (env.payload and env.payload[table_name] and env.payload[table_name].rows) then
+  if not ok or type(env) ~= "table" then return nil end
+  -- kind gate (TD-258): the envelope must carry the kind this caller registered for — a wrong
+  -- kind is a FACT-SOURCE mismatch, named as such (distinct from failed-to-run).
+  local why = require("fox-symdeps.toolio_kinds").assert_consumed(env, want_kind)
+  if why then return nil, why end
+  if not (env.payload and env.payload[table_name] and env.payload[table_name].rows) then
     return nil
   end
   return env.payload[table_name].rows
@@ -253,9 +257,10 @@ function M.open()
     local argv = { "python3", "tools/citable_ids.py", "--where" }
     for _, id in ipairs(r.where) do argv[#argv + 1] = id end
     runner.run(argv, root, function(out_lines)
-      local rows = _decode(out_lines, "sites")
+      local rows, why = _decode(out_lines, "sites", "defining_site/1")
       if not rows then
-        require("fox-symdeps.ui").notify_raw("fox-symdeps · --where resolver FAILED to run (refusal, not empty facts)",
+        require("fox-symdeps.ui").notify_raw("fox-symdeps · --where resolver "
+                   .. (why or "FAILED to run (refusal, not empty facts)"),
                    vim.log.levels.ERROR)
       else
         local p = M.partition(rows)
@@ -269,9 +274,10 @@ function M.open()
     local argv = { "python3", "tools/citable_ids.py", "--resolve" }
     for _, nm in ipairs(r.resolve) do argv[#argv + 1] = nm end
     runner.run(argv, root, function(out_lines)
-      local rows = _decode(out_lines, "resolutions")
+      local rows, why = _decode(out_lines, "resolutions", "cited_path/1")
       if not rows then
-        require("fox-symdeps.ui").notify_raw("fox-symdeps · --resolve resolver FAILED to run (refusal, not empty facts)",
+        require("fox-symdeps.ui").notify_raw("fox-symdeps · --resolve resolver "
+                   .. (why or "FAILED to run (refusal, not empty facts)"),
                    vim.log.levels.ERROR)
       else
         for _, row in ipairs(rows) do

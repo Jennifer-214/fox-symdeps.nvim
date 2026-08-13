@@ -100,6 +100,9 @@ local function decode(stdout)
   if not stdout or stdout == "" then return nil end
   local ok, env = pcall(vim.json.decode, stdout)
   if not ok or type(env) ~= "table" then return nil end
+  -- kind gate (TD-258): a stale/wrong foxtag emitting a non-grammar/1 envelope degrades the tag
+  -- layer LOUDLY-downstream (nil model → the checkhealth rebuild warning), never decodes wrong.
+  if require("fox-symdeps.toolio_kinds").assert_consumed(env, "grammar/1") then return nil end
   local pay = env.payload and env.payload.unit_types
   if not (pay and pay.schema and pay.rows) then return nil end
   local ci = {}

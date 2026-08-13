@@ -41,5 +41,17 @@ ok(#stale.unknown_kind == 1 and stale.unknown_kind[1] == "gone/1 (exempt row)",
 local ref = TK.parity("/nonexistent-root-toolio-kinds-test")
 ok(ref.refusal ~= nil, "unreadable registry returns a refusal, not empty-parity ok")
 
+-- runtime seam (TD-258 half 2): assert_consumed is the load-bearing gate at every decode
+ok(TK.assert_consumed({ payload_schema_version = "grammar/1" }, "grammar/1") == nil,
+   "right kind + registered row → nil (clean pass-through)")
+local mism = TK.assert_consumed({ payload_schema_version = "grammar/1" }, "cited_path/1")
+ok(type(mism) == "string" and mism:find("fact%-source mismatch") ~= nil,
+   "wrong kind from producer → named fact-source mismatch")
+local rot = TK.assert_consumed({ payload_schema_version = "ghost/1" }, "ghost/1")
+ok(type(rot) == "string" and rot:find("registry rot") ~= nil,
+   "consumer claiming an unregistered kind → named registry rot")
+ok(TK.assert_consumed(nil, "grammar/1") ~= nil,
+   "nil envelope → named mismatch, never a silent pass")
+
 io.write(("toolio_kinds: %d passed, %d failed\n"):format(pass, fail))
 if fail > 0 then os.exit(1) end

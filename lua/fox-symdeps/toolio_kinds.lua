@@ -39,6 +39,21 @@ function M.compare(registry_keys, consumed, exempt)
   return { missing_consumer = missing, unknown_kind = unknown }
 end
 
+-- Runtime seam (TD-258 half 2 — the table is LOAD-BEARING, not documentation): a consumer names
+-- the kind it expects; the envelope must carry it AND the registry row must exist (a consumer
+-- reading an unregistered kind = this table rotted). Returns nil when fine, else a short reason
+-- the caller folds into its refusal message — never a silent nil-rows.
+function M.assert_consumed(env, want)
+  if not M.consumed[want] then
+    return ("plugin consumes '%s' with no toolio_kinds row — registry rot"):format(want)
+  end
+  local got = env and env.payload_schema_version
+  if got ~= want then
+    return ("expected payload kind '%s', producer sent '%s' — fact-source mismatch"):format(want, tostring(got))
+  end
+  return nil
+end
+
 -- Read tools/lib/toolio_schemas.json under `root` (engine root) and compare against M.consumed.
 -- TRI-STATE honest (Class 57): an unreadable/undecodable registry is a REFUSAL — never an
 -- empty-parity "ok" (zero kinds found ≠ zero kinds drifted).
