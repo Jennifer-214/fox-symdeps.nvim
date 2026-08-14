@@ -98,6 +98,22 @@ ok(m.n_insn == 4, "shipped instruction count = ALL instruction rows (the budget 
 local mo = A.line_map(lm_fix, "/home/y/CoreFrameworks/Portfolio.hpp", 10)
 ok(mo.by_src[58][1] == 14 and mo.src_of[14] == 58, "offset shifts map keys to final display-buffer rows")
 
+-- jump map: EVERY marker row (current + foreign) carries {path, line}; instructions don't
+ok(m.jump[3] and m.jump[3].path == "/home/x/CoreFrameworks/Portfolio.hpp" and m.jump[3].line == 58,
+   "current-file marker row enters jump with full path")
+ok(m.jump[8] and m.jump[8].path == "/home/x/MemHeaders/Other.hpp" and m.jump[8].line == 99,
+   "foreign (inlined-from) marker row enters jump — <CR> can go INTO the origin file")
+ok(m.jump[4] == nil, "instruction rows carry no jump")
+ok(mo.jump[13] and mo.jump[13].line == 58, "jump keys shift with the display offset")
+
+-- follow decision (pure): retarget ONLY on a NEW enclosing FUNCTION — everything else HOLDS
+ok(A.follow_target(nil, "X") == nil, "no enclosing block → hold")
+ok(A.follow_target({ type = "STRUCT", name = "FPN_Binary" }, "X") == nil, "struct → hold (never flicker)")
+ok(A.follow_target({ type = "FUNCTION", name = "Portfolio_Init" }, "Portfolio_Init") == nil,
+   "same function → hold (no redundant re-resolve)")
+ok(A.follow_target({ type = "FUNCTION", name = "BG_Evaluate<64>" }, "Portfolio_Init") == "BG_Evaluate",
+   "new function → retarget on the stripped base symbol")
+
 -- sweep order: newest recorded binary first (recency-as-rule)
 local cars = A.sweep_order({
   { path = "a", prov = { mtime = 100 } },

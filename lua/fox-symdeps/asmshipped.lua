@@ -7,19 +7,23 @@
 --   FOUND         the function's shipped instructions, provenance in the winbar; other binaries
 --                 carrying it are listed, instantiation blocks all shown (multiplicity is fact)
 --   INLINED-AWAY  zero standalone copies across every sidecar searched — a FACT about the shipped
---                 binary (the Notify_Send answer), rendered as a statement, not a blank
+--                 binary, rendered as a statement, not a blank
 --   STALE         sidecar's recorded binary-sha16 ≠ the binary's current sha16 → rendered WITH a
 --                 loud banner (old asm is real asm — of the OLD binary), never silently
 --   NO-SIDECAR    refusal naming the fix: run `./build.sh asm`
 --
--- Sweep order = newest recorded binary first (recency-as-rule, §11(iii): the binary you just
--- built is the one you're dogfooding). <leader>ds.
+-- A FOLLOW surface (operator ask 2026-08-14, the followcard shape): `<leader>ds` TOGGLES the ONE
+-- card; while open it retargets to the enclosing FUNCTION as the cursor moves — across files —
+-- on idle (CursorHold; comments/structs HOLD the last view, no flicker). `<CR>` on a `· file:line`
+-- marker jumps the source window there (including INTO the inlined-from files — and follow then
+-- retargets to the function you landed in). `r` re-resolves (pairs with the stale banner after a
+-- rebuild). Sweep order = newest recorded binary first (recency-as-rule §11(iii)).
 local M = {}
 
 -- ── pure core (the teeth hit these directly) ─────────────────────────────────────────────────
 
--- sidecar header (the ./build.sh asm provenance contract, 3 lines) → { binary, sha16, mtime,
--- head } | nil, reason. Tri-state: a mutilated header is a NAMED refusal, never {}.
+-- sidecar header (the ./build.sh asm provenance contract) → { binary, sha16, mtime, head } |
+-- nil, reason. Tri-state: a mutilated header is a NAMED refusal, never {}.
 function M.parse_header(l1, l2)
   local binary = (l1 or ""):match("^# 1:1 disassembly of (%S+)")
   local sha16, mtime, head = (l2 or ""):match(
@@ -106,15 +110,16 @@ function M.same_source(marker_path, src_abs)
   return mp == sp
 end
 
--- pure: an extracted `-l` block → { display, src_of, by_src, n_insn }. Marker lines
+-- pure: an extracted `-l` block → { display, src_of, by_src, jump, n_insn }. Marker lines
 -- (`/abs/path:NNN`) become dimmed `· name:NNN` rows — `· from <file>:NNN` when the code was
--- INLINED FROM another file (visible cross-TU attribution, which no per-TU compile can show);
--- instruction rows under a current-file marker enter the bidirectional maps. n_insn = the
--- function's SHIPPED instruction count (the budget-checkable number — H7/H8 join rides the
--- probe-cutover leaf).
+-- INLINED FROM another file (cross-TU attribution no per-TU compile can show); instruction
+-- rows under a current-file marker enter the bidirectional maps; EVERY marker row enters
+-- `jump` ({row → {path, line}}) so <CR> can go there — including into the inlined-from files.
+-- n_insn = the function's SHIPPED instruction count (the budget-checkable number — the
+-- H7/H8 join rides the probe-cutover rung).
 function M.line_map(block_lines, src_abs, offset)
   offset = offset or 0
-  local display, src_of, by_src, n_insn = {}, {}, {}, 0
+  local display, src_of, by_src, jump, n_insn = {}, {}, {}, {}, 0
   local cur_src = nil
   for _, line in ipairs(block_lines) do
     local path, ln = line:match("^(/[^:]+):(%d+)")
@@ -128,6 +133,7 @@ function M.line_map(block_lines, src_abs, offset)
         cur_src = nil
         display[#display + 1] = ("  · from %s:%s"):format(name, ln)
       end
+      jump[offset + #display] = { path = path, line = tonumber(ln) }
     else
       display[#display + 1] = line
       if line:match("^%s+%x+:\t") then
@@ -140,13 +146,22 @@ function M.line_map(block_lines, src_abs, offset)
       end
     end
   end
-  return { display = display, src_of = src_of, by_src = by_src, n_insn = n_insn }
+  return { display = display, src_of = src_of, by_src = by_src, jump = jump, n_insn = n_insn }
 end
 
 -- newest-first over parsed sidecars (recorded binary mtime; recency-as-rule §11(iii)).
 function M.sweep_order(cars)
   table.sort(cars, function(a, b) return (a.prov.mtime or 0) > (b.prov.mtime or 0) end)
   return cars
+end
+
+-- follow decision, pure: enclosing block → the NEW base symbol to retarget to, or nil (HOLD —
+-- nil/non-function regions and the already-shown function never flicker the card).
+function M.follow_target(blk, cur_symbol)
+  if not blk or blk.type ~= "FUNCTION" then return nil end
+  local sym = M.base_symbol(blk.name)
+  if sym == "" or sym == cur_symbol then return nil end
+  return sym
 end
 
 -- ── async assembly ───────────────────────────────────────────────────────────────────────────
@@ -215,7 +230,7 @@ local function freshness(prov, root, cb)
   end)
 end
 
--- ── the card ─────────────────────────────────────────────────────────────────────────────────
+-- ── the card (ONE live follow surface) ───────────────────────────────────────────────────────
 
 local NS_SYNC = vim.api.nvim_create_namespace("fox_symdeps_asmshipped_sync")
 local NS_PAINT = vim.api.nvim_create_namespace("fox_symdeps_asmshipped_paint")
@@ -223,13 +238,11 @@ local NS_PAINT = vim.api.nvim_create_namespace("fox_symdeps_asmshipped_paint")
 -- deterministic painter — theme-linked BUILTIN groups, zero parser deps (dogfood 2026-08-13:
 -- "the asm is missing the text colors"; an asm treesitter/syntax file may or may not exist on
 -- a given setup, and our content isn't pure asm anyway — markers + demangled context lines).
--- addresses=Number · mnemonics=Statement · %registers=Identifier · $immediates=Constant ·
--- <call-targets>=Special · `· file:line` markers=Comment (`· from` foreign=DiagnosticHint) ·
--- demangled context lines=Type · block headers=Function · provenance/⚠=Title/WarningMsg.
 local function paint_lines(buf, lines)
   local function mark(row, s, e, grp)
     pcall(vim.api.nvim_buf_set_extmark, buf, NS_PAINT, row - 1, s - 1, { end_col = e, hl_group = grp })
   end
+  vim.api.nvim_buf_clear_namespace(buf, NS_PAINT, 0, -1)
   for i, l in ipairs(lines) do
     if l:find("  · from ", 1, true) == 1 then
       mark(i, 1, #l, "DiagnosticHint")
@@ -264,17 +277,82 @@ local function paint_lines(buf, lines)
   end
 end
 
--- show the card; when `sync` = { srcbuf, srcwin, by_src, src_of } is given, wire BIDIRECTIONAL
--- cursor sync (operator ask 2026-08-13: "highlight the lines on both so they both scroll at the
--- same time"): source line ↔ its shipped instructions, both panes highlighted, the counterpart
--- scrolled into view. Each direction fires only from the pane that HAS focus (no ping-pong).
-local function show(lines, title, palette, sync)
+local S = nil   -- { win, buf, aug, symbol, busy, sync = { srcbuf, srcwin, by_src, src_of, jump } }
+local resolve_into   -- fwd decl (maybe_follow ↔ resolve_into)
+
+local function close_card()
+  if not S then return end
+  if S.aug then pcall(vim.api.nvim_del_augroup_by_id, S.aug) end
+  if S.sync and S.sync.srcbuf and vim.api.nvim_buf_is_valid(S.sync.srcbuf) then
+    pcall(vim.api.nvim_buf_clear_namespace, S.sync.srcbuf, NS_SYNC, 0, -1)
+  end
+  if S.win and vim.api.nvim_win_is_valid(S.win) then pcall(vim.api.nvim_win_close, S.win, true) end
+  S = nil
+end
+
+local function paint_sync(srcline, asmrows)
+  if not S then return end
+  if S.sync.srcbuf and vim.api.nvim_buf_is_valid(S.sync.srcbuf) then
+    pcall(vim.api.nvim_buf_clear_namespace, S.sync.srcbuf, NS_SYNC, 0, -1)
+  end
+  pcall(vim.api.nvim_buf_clear_namespace, S.buf, NS_SYNC, 0, -1)
+  if srcline and S.sync.srcbuf then
+    pcall(vim.api.nvim_buf_set_extmark, S.sync.srcbuf, NS_SYNC, srcline - 1, 0,
+          { line_hl_group = "FoxSymdepsSelection" })
+  end
+  -- asm side = the hover-look BAND (bg-only; a vectorized line maps to ~40 rows — text colors stay)
+  for _, r in ipairs(asmrows or {}) do
+    pcall(vim.api.nvim_buf_set_extmark, S.buf, NS_SYNC, r - 1, 0,
+          { line_hl_group = "FoxSymdepsSyncLine" })
+  end
+end
+
+local function maybe_follow()
+  if not (S and vim.api.nvim_win_is_valid(S.win)) or S.busy then return end
+  local buf = vim.api.nvim_get_current_buf()
+  if buf == S.buf or vim.bo[buf].buftype ~= "" then return end
+  local ok, tc = pcall(require, "fox-symdeps.tagcontext")
+  if not ok then return end
+  local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
+  local sym = M.follow_target(tc.enclosing_block(buf, row0), S.symbol)
+  if sym then resolve_into(sym, buf, vim.api.nvim_get_current_win()) end
+end
+
+-- jump the SOURCE window to a marker row's file:line (<CR>); foreign files load via bufadd
+-- (never :edit — unsaved-changes-safe). Landing in another file, follow retargets there.
+local function jump_to_marker()
+  if not S then return end
+  local row = vim.api.nvim_win_get_cursor(S.win)[1]
+  local j = S.sync.jump and S.sync.jump[row]
+  if not j then return end
+  local win = (S.sync.srcwin and vim.api.nvim_win_is_valid(S.sync.srcwin)) and S.sync.srcwin or nil
+  if not win then
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · source window gone — reopen a code window", vim.log.levels.WARN)
+  end
+  local path = j.path
+  if vim.fn.filereadable(path) ~= 1 then
+    -- DWARF paths can carry ../ compositions or a different root — resolve via the same rule
+    local norm = vim.fs.normalize(path)
+    if vim.fn.filereadable(norm) == 1 then path = norm
+    else
+      return require("fox-symdeps.ui").notify_raw("fox-symdeps · " .. path .. " not readable here (out-of-tree DWARF path)", vim.log.levels.WARN)
+    end
+  end
+  local b = vim.fn.bufadd(path)
+  vim.fn.bufload(b)
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_buf(win, b)
+  pcall(vim.api.nvim_win_set_cursor, win, { math.max(j.line, 1), 0 })
+end
+
+local function ensure_card(title, invoking_win)
+  if S and vim.api.nvim_buf_is_valid(S.buf) and vim.api.nvim_win_is_valid(S.win) then
+    vim.wo[S.win].winbar = "%#FoxSymdepsTitle# " .. title .. " %*"
+    return
+  end
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "asm"
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  paint_lines(buf, lines)
   vim.cmd("rightbelow vsplit")
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
@@ -283,98 +361,77 @@ local function show(lines, title, palette, sync)
   vim.wo[win].wrap = false             -- long demangled call targets wrapped into 6-line blocks
   vim.wo[win].winbar = "%#FoxSymdepsTitle# " .. title .. " %*"
   vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
-
-  local aug
-  local function cleanup()
-    if aug then pcall(vim.api.nvim_del_augroup_by_id, aug) end
-    if sync and vim.api.nvim_buf_is_valid(sync.srcbuf) then
-      vim.api.nvim_buf_clear_namespace(sync.srcbuf, NS_SYNC, 0, -1)
+  S = { win = win, buf = buf, sync = {} }
+  vim.keymap.set("n", "q", close_card, { buffer = buf, nowait = true, desc = "fox-symdeps: close shipped-asm card" })
+  vim.keymap.set("n", "<CR>", jump_to_marker, { buffer = buf, nowait = true, desc = "fox-symdeps: jump to marker file:line" })
+  vim.keymap.set("n", "r", function()
+    if S and S.symbol and not S.busy then
+      resolve_into(S.symbol, S.sync.srcbuf, S.sync.srcwin)
     end
-    pcall(vim.api.nvim_win_close, win, true)
-  end
-  vim.keymap.set("n", "q", cleanup, { buffer = buf, nowait = true, desc = "fox-symdeps: close shipped-asm card" })
-
-  if sync and next(sync.by_src) then
-    vim.api.nvim_set_current_win(sync.srcwin)   -- keep the user in their code
-    local function paint(srcline, asmrows)
-      pcall(vim.api.nvim_buf_clear_namespace, sync.srcbuf, NS_SYNC, 0, -1)
-      pcall(vim.api.nvim_buf_clear_namespace, buf, NS_SYNC, 0, -1)
-      if srcline then
-        pcall(vim.api.nvim_buf_set_extmark, sync.srcbuf, NS_SYNC, srcline - 1, 0,
-              { line_hl_group = "FoxSymdepsSelection" })
-      end
-      -- asm side = the whisper BAND (bg-only; a vectorized line maps to ~40 rows — a solid bar
-      -- group swallowed the text, operator dogfood): text keeps its painted colors.
-      for _, r in ipairs(asmrows or {}) do
-        pcall(vim.api.nvim_buf_set_extmark, buf, NS_SYNC, r - 1, 0,
-              { line_hl_group = "FoxSymdepsSyncLine" })
-      end
-    end
-    aug = vim.api.nvim_create_augroup("FoxSymdepsAsmShipped_" .. buf, { clear = true })
-    vim.api.nvim_create_autocmd("CursorMoved", {
-      group = aug, buffer = sync.srcbuf,
-      callback = function()
-        if vim.api.nvim_get_current_win() ~= sync.srcwin then return end
-        if not vim.api.nvim_win_is_valid(win) then return end
-        local sl = vim.api.nvim_win_get_cursor(sync.srcwin)[1]
-        local rows = sync.by_src[sl]
-        if not rows or #rows == 0 then return end
-        paint(sl, rows)
-        pcall(vim.api.nvim_win_set_cursor, win, { rows[1], 0 })
-        vim.api.nvim_win_call(win, function() vim.cmd("normal! zz") end)
-      end,
-    })
-    vim.api.nvim_create_autocmd("CursorMoved", {
-      group = aug, buffer = buf,
-      callback = function()
-        if vim.api.nvim_get_current_win() ~= win then return end
-        if not vim.api.nvim_win_is_valid(sync.srcwin) then return end
-        local ar = vim.api.nvim_win_get_cursor(win)[1]
-        local sl = sync.src_of[ar]
-        if not sl then return end
-        paint(sl, sync.by_src[sl])
-        pcall(vim.api.nvim_win_set_cursor, sync.srcwin, { sl, 0 })
-        vim.api.nvim_win_call(sync.srcwin, function() vim.cmd("normal! zz") end)
-      end,
-    })
-    vim.api.nvim_create_autocmd("WinClosed", {
-      pattern = tostring(win), once = true,
-      callback = function()
-        if aug then pcall(vim.api.nvim_del_augroup_by_id, aug) end
-        if vim.api.nvim_buf_is_valid(sync.srcbuf) then
-          pcall(vim.api.nvim_buf_clear_namespace, sync.srcbuf, NS_SYNC, 0, -1)
-        end
-      end,
-    })
+  end, { buffer = buf, nowait = true, desc = "fox-symdeps: re-resolve (after a rebuild)" })
+  S.aug = vim.api.nvim_create_augroup("FoxSymdepsAsmShipped", { clear = true })
+  vim.api.nvim_create_autocmd("CursorMoved", {   -- source → asm sync (global; srcbuf changes on follow)
+    group = S.aug,
+    callback = function()
+      if not (S and S.sync.by_src) then return end
+      if vim.api.nvim_get_current_buf() ~= S.sync.srcbuf then return end
+      if not vim.api.nvim_win_is_valid(S.win) then return end
+      local sl = vim.api.nvim_win_get_cursor(0)[1]
+      local rows = S.sync.by_src[sl]
+      if not rows or #rows == 0 then return end
+      paint_sync(sl, rows)
+      pcall(vim.api.nvim_win_set_cursor, S.win, { rows[1], 0 })
+      vim.api.nvim_win_call(S.win, function() vim.cmd("normal! zz") end)
+    end,
+  })
+  vim.api.nvim_create_autocmd("CursorMoved", {   -- asm → source sync
+    group = S.aug, buffer = buf,
+    callback = function()
+      if not (S and S.sync.src_of) then return end
+      if vim.api.nvim_get_current_win() ~= S.win then return end
+      if not (S.sync.srcwin and vim.api.nvim_win_is_valid(S.sync.srcwin)) then return end
+      local sl = S.sync.src_of[vim.api.nvim_win_get_cursor(S.win)[1]]
+      if not sl then return end
+      paint_sync(sl, S.sync.by_src[sl])
+      pcall(vim.api.nvim_win_set_cursor, S.sync.srcwin, { sl, 0 })
+      vim.api.nvim_win_call(S.sync.srcwin, function() vim.cmd("normal! zz") end)
+    end,
+  })
+  vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI", "BufEnter" }, {  -- the FOLLOW trigger
+    group = S.aug, callback = maybe_follow,
+  })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    pattern = tostring(win), once = true, callback = close_card,
+  })
+  if invoking_win and vim.api.nvim_win_is_valid(invoking_win) then
+    vim.api.nvim_set_current_win(invoking_win)   -- keep the user in their code
   end
 end
 
-function M.open(palette)
-  local buf = vim.api.nvim_get_current_buf()
-  local srcwin = vim.api.nvim_get_current_win()
-  local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
-  local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
-  -- per-FUNCTION view, said honestly (dogfood 2026-08-13: firing inside the FPN_Binary STRUCT
-  -- rendered a function that merely TAKES the type — misleading; the guard names the mismatch)
-  if blk and blk.type ~= "FUNCTION" then
-    return require("fox-symdeps.ui").notify_raw(
-      ("fox-symdeps · shipped-asm is a per-FUNCTION view; %s is a %s — put the cursor inside a "
-       .. "function body (struct layout lives on the HUD / board)"):format(blk.name, blk.type:lower()),
-      vim.log.levels.WARN)
+local function render(lines, title, sync_tbl, invoking_win)
+  ensure_card(title, invoking_win)
+  vim.bo[S.buf].modifiable = true
+  vim.api.nvim_buf_set_lines(S.buf, 0, -1, false, lines)
+  vim.bo[S.buf].modifiable = false
+  paint_lines(S.buf, lines)
+  -- clear stale sync highlights from the previous target before swapping maps
+  if S.sync.srcbuf and vim.api.nvim_buf_is_valid(S.sync.srcbuf) then
+    pcall(vim.api.nvim_buf_clear_namespace, S.sync.srcbuf, NS_SYNC, 0, -1)
   end
-  local raw = (blk and blk.name) or vim.fn.expand("<cword>")
-  local symbol = M.base_symbol(raw)
-  if symbol == "" then
-    return require("fox-symdeps.ui").notify_raw("fox-symdeps · shipped-asm: no symbol at cursor", vim.log.levels.WARN)
-  end
-  local root = root_of(vim.api.nvim_buf_get_name(buf))
+  pcall(vim.api.nvim_buf_clear_namespace, S.buf, NS_SYNC, 0, -1)
+  S.sync = sync_tbl
+end
+
+-- the resolve pipeline → render into the ONE card. Used by open (initial), follow, and `r`.
+resolve_into = function(symbol, srcbuf, srcwin)
+  local root = root_of(vim.api.nvim_buf_get_name(srcbuf))
   local cars = sidecars(root)
   if #cars == 0 then
     return require("fox-symdeps.ui").notify_raw(
       "fox-symdeps · shipped-asm REFUSED: no build*/asm sidecars — run ./build.sh asm first", vim.log.levels.ERROR)
   end
+  if S then S.busy = true end
   find_blocks(cars, symbol, function(defs, calls)
-    -- pick the first sidecar (newest recorded binary) that carries a definition
     local pick, others, callsum = nil, {}, 0
     for _, c in ipairs(cars) do
       if defs[c.path] then
@@ -394,7 +451,10 @@ function M.open(palette)
         lines[#lines + 1] = ("  referenced %d time%s across the sidecars (call-site annotations)")
                             :format(callsum, callsum == 1 and "" or "s")
       end
-      return show(lines, "asm · SHIPPED 1:1 · " .. symbol .. " · INLINED-AWAY", palette)
+      render(lines, "asm · SHIPPED 1:1 · " .. symbol .. " · INLINED-AWAY",
+             { srcbuf = srcbuf, srcwin = srcwin }, srcwin)
+      S.symbol, S.busy = symbol, false
+      return
     end
     freshness(pick.prov, root, function(verdict, now16)
       local hits = defs[pick.path]
@@ -404,12 +464,12 @@ function M.open(palette)
           out[i] = blines
           done = done + 1
           if done == #hits then
-            local src_abs = vim.api.nvim_buf_get_name(buf)
+            local src_abs = vim.api.nvim_buf_get_name(srcbuf)
             local lines = {
               ("  shipped: %s · sha16 %s · emitted at %s"):format(pick.prov.binary, pick.prov.sha16, pick.prov.head),
             }
             if verdict == "stale" then
-              lines[#lines + 1] = ("  ⚠ STALE — binary rebuilt since emit (now %s); re-run ./build.sh asm"):format(now16 or "?")
+              lines[#lines + 1] = ("  ⚠ STALE — binary rebuilt since emit (now %s); re-run ./build.sh asm, then `r`"):format(now16 or "?")
             elseif verdict == "binary-missing" then
               lines[#lines + 1] = "  ⚠ binary no longer on disk — sidecar is an orphan of an old build"
             end
@@ -420,13 +480,12 @@ function M.open(palette)
             local insn_at = #lines + 1
             lines[#lines + 1] = ""   -- per-function instruction count, filled after mapping
             lines[#lines + 1] = ""
-            -- per-block line_map: markers become dimmed rows, instructions enter the
-            -- bidirectional maps (indices are FINAL display-buffer line numbers)
-            local by_src, src_of, total = {}, {}, 0
+            local by_src, src_of, jump, total = {}, {}, {}, 0
             for _, b in ipairs(out) do
               local m = M.line_map(b, src_abs, #lines)
               vim.list_extend(lines, m.display)
               for k, v in pairs(m.src_of) do src_of[k] = v end
+              for k, v in pairs(m.jump) do jump[k] = v end
               for sl, rows in pairs(m.by_src) do
                 by_src[sl] = by_src[sl] or {}
                 vim.list_extend(by_src[sl], rows)
@@ -436,11 +495,14 @@ function M.open(palette)
             end
             lines[insn_at] = ("  %d shipped instruction%s%s"):format(
               total, total == 1 and "" or "s",
-              next(by_src) and "  ·  cursor-synced (both panes highlight; move in either)"
+              next(by_src) and "  ·  synced (move in either pane · <CR> jumps markers · r refreshes)"
                             or "  ·  no line info in this sidecar — rebuild (./build.sh engine|gui) for source-sync")
             local mark = verdict == "fresh" and "" or " · ⚠ " .. verdict
-            show(lines, ("asm · SHIPPED 1:1 · %s · %s%s"):format(symbol, pick.prov.binary:match("[^/]+$") or pick.prov.binary, mark),
-                 palette, { srcbuf = buf, srcwin = srcwin, by_src = by_src, src_of = src_of })
+            render(lines, ("asm · SHIPPED 1:1 · %s · %s%s"):format(
+                     symbol, pick.prov.binary:match("[^/]+$") or pick.prov.binary, mark),
+                   { srcbuf = srcbuf, srcwin = srcwin, by_src = by_src, src_of = src_of, jump = jump },
+                   srcwin)
+            S.symbol, S.busy = symbol, false
           end
         end)
       end
@@ -448,6 +510,29 @@ function M.open(palette)
   end)
 end
 
+function M.open(palette)
+  if S then return close_card() end   -- toggle (operator ask: the ONE live card)
+  local buf = vim.api.nvim_get_current_buf()
+  local srcwin = vim.api.nvim_get_current_win()
+  local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
+  local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
+  -- per-FUNCTION view, said honestly (dogfood 2026-08-13: firing inside the FPN_Binary STRUCT
+  -- rendered a function that merely TAKES the type — misleading; the guard names the mismatch)
+  if blk and blk.type ~= "FUNCTION" then
+    return require("fox-symdeps.ui").notify_raw(
+      ("fox-symdeps · shipped-asm is a per-FUNCTION view; %s is a %s — put the cursor inside a "
+       .. "function body (struct layout lives on the HUD / board)"):format(blk.name, blk.type:lower()),
+      vim.log.levels.WARN)
+  end
+  local raw = (blk and blk.name) or vim.fn.expand("<cword>")
+  local symbol = M.base_symbol(raw)
+  if symbol == "" then
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · shipped-asm: no symbol at cursor", vim.log.levels.WARN)
+  end
+  resolve_into(symbol, buf, srcwin)
+end
+
 -- test hooks (asmexplorer's M._ convention): the async glue, drivable from fixtures/smokes
 M._sidecars, M._find_blocks, M._extract, M._freshness = sidecars, find_blocks, extract, freshness
+M._state = function() return S end
 return M
