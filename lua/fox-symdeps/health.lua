@@ -98,6 +98,19 @@ function M.check()
     end
   end
 
+  -- ── shipped-asm sidecars (the <leader>ds 1:1 source; ./build.sh asm emits them) ───────────
+  do
+    local buf_file = vim.api.nvim_buf_get_name(0)
+    local root = (buf_file ~= "" and vim.fs.root(buf_file, { ".git", "compile_commands.json" }))
+                 or vim.fn.getcwd()
+    local cars = vim.fn.glob(root .. "/build*/asm/*.asm", false, true)
+    if #cars > 0 then
+      h.ok(#cars .. " shipped-asm sidecar(s) — <leader>ds reads the ACTUAL binaries")
+    else
+      h.info("no build*/asm sidecars — run ./build.sh asm to enable the shipped-asm card (<leader>ds refuses without them)")
+    end
+  end
+
   -- ── toolio payload-kind parity (TD-258 — a new producer kind must be VISIBLE here) ────────
   do
     local ok_tk, tk = pcall(require, "fox-symdeps.toolio_kinds")

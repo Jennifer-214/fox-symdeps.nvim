@@ -81,6 +81,8 @@ M.registry = {
     run = function() vim.cmd("FoxSymdepsDerived!") end },
   { label = "Source ↔ ASM explorer", types = { ["function"] = true },
     run = function() require("fox-symdeps.asmexplorer").open(pal()) end },
+  { label = "SHIPPED asm — this function in the ACTUAL binary (1:1 sidecar)", types = { ["function"] = true },
+    run = function() require("fox-symdeps.asmshipped").open(pal()) end },
   { label = "Branch tags (data-dependent ▲)", types = { ["function"] = true },
     run = function() require("fox-symdeps.branchtag").toggle() end },
   -- struct

@@ -1,6 +1,9 @@
--- asmexplorer.lua — a godbolt, inside nvim. Compiles the buffer with the REAL toolchain (the compiler
--- + flags from compile_commands, only LTO stripped, + -g) so the asm is 1:1 with the shipped binary,
--- then shows it side-by-side with your code and SYNCS the two: put the cursor on a C++ line and its
+-- asmexplorer.lua — a godbolt, inside nvim. Compiles the buffer with the real toolchain (the compiler
+-- + flags from compile_commands, LTO stripped, + -g) — an editor-flags APPROXIMATION, deliberately:
+-- stripping -flto is what makes per-TU asm exist at all, but the shipped codegen happens at LTO link,
+-- so the 1:1 truth lives in the `./build.sh asm` sidecars (asmshipped.lua, <leader>ds). This surface's
+-- value is the -g source↔asm MAP the sidecar cannot have (no -g in release binaries):
+-- it shows asm side-by-side with your code and SYNCS the two: put the cursor on a C++ line and its
 -- instructions highlight + scroll into view in the asm pane (via the -g `.loc` map). Data-dependent
 -- branches glow. No instantiation prompt — the `Foo<64>` in your code just gets compiled as used.
 --
@@ -234,13 +237,13 @@ function M.open(palette)
   st.asmbuf = vim.api.nvim_create_buf(false, true)
   vim.bo[st.asmbuf].bufhidden = "wipe"
   vim.bo[st.asmbuf].filetype = "asm"
-  vim.api.nvim_buf_set_lines(st.asmbuf, 0, -1, false, { "  ⚙ compiling with your real toolchain (1:1)…" })
+  vim.api.nvim_buf_set_lines(st.asmbuf, 0, -1, false, { "  ⚙ compiling with editor flags (LTO stripped — shipped truth: <leader>ds)…" })
   vim.bo[st.asmbuf].modifiable = false
   vim.cmd("rightbelow vsplit")
   st.asmwin = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(st.asmwin, st.asmbuf)
   vim.wo[st.asmwin].number = false
-  vim.wo[st.asmwin].winbar = "%#FoxSymdepsTitle# asm · 1:1 · " .. (st.range and "this function" or "buffer") .. " %*"
+  vim.wo[st.asmwin].winbar = "%#FoxSymdepsTitle# asm · editor-flags · " .. (st.range and "this function" or "buffer") .. " · shipped=<leader>ds %*"
   vim.wo[st.asmwin].winhighlight = "Normal:FoxSymdepsNormal"
   vim.api.nvim_set_current_win(srcwin) -- keep the user in their code
   vim.keymap.set("n", "q", function() M.close(srcbuf) end, { buffer = st.asmbuf, nowait = true })
