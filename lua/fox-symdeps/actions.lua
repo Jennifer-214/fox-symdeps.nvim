@@ -12,20 +12,22 @@ local function pal() return require("fox-symdeps").config.palette end
 -- `all = true` → every unit type. Else `types = { ["function"]=true, struct=true, … }` — the
 -- LOWERCASED tag type ("function"/"struct"/"registry"/"file"). ("function" is a keyword → bracket key.)
 M.registry = {
-  -- universal — any unit
-  { label = "Symbol HUD — layout · uses · calls · trace", all = true,
+  -- universal — any unit. Every row carries an `id`: the keymap registry's `action_id` links a
+  -- bind to its row and the menu DERIVES the "(<leader>dX)" suffix — the bind string lives only
+  -- in the keymap registry (operator ask 2026-08-13: every option shows its key).
+  { id = "hud", label = "Symbol HUD — layout · uses · calls · trace", all = true,
     run = function() require("fox-symdeps").inspect_cursor() end },
-  { label = "Board — ADD this unit's card (accumulates; s in-board compares)", all = true,
+  { id = "board-add", label = "Board — ADD this unit's card (accumulates; s in-board compares)", all = true,
     run = function() require("fox-symdeps.panel").add(pal()) end },
-  { label = "Follow card — auto-follows the enclosing unit", all = true,
+  { id = "follow", label = "Follow card — auto-follows the enclosing unit", all = true,
     run = function() require("fox-symdeps.followcard").toggle(pal()) end },
-  { label = "Board — compare two cards side-by-side", all = true,
+  { id = "board-compare", label = "Board — compare two cards side-by-side", all = true,
     when = function()
       local ok, pnl = pcall(require, "fox-symdeps.panel")
       return ok and pnl.is_open() and pnl._count() >= 2
     end,
     run = function() require("fox-symdeps.panel").compare() end },
-  { label = "Preview derived facts", all = true,
+  { id = "derived-preview", label = "Preview derived facts", all = true,
     run = function() vim.cmd("FoxSymdepsDerived") end },
   -- Analysis rows (fleet phase 2; dm-EQUAL per the operator's one-registry call — these render
   -- INTO the invoking HUD when one is open [keep_stack], and fall back to verdict NOTIFIES from
@@ -43,7 +45,7 @@ M.registry = {
     run = function(ctx)
       require("fox-symdeps.lenses.false_sharing").analyze(ctx, M._hud_or_shim(ctx))
     end },
-  { label = "Docs — [REFERENCE] → open the defining doc (float beside code)", all = true,
+  { id = "docs", label = "Docs — [REFERENCE] → open the defining doc (float beside code)", all = true,
     -- context-gated (§6's rule): shown only when the enclosing unit actually carries the
     -- [REFERENCE] axis this affordance renders (§9's law). Takes the EXPLICIT ctx (fleet P2
     -- fix): evaluated from the SOURCE buffer the invoker names — never the current window
@@ -76,24 +78,31 @@ M.registry = {
     end,
     run = function(ctx) require("fox-symdeps.tagadd").add(ctx) end },
   -- function
-  { label = "Write [DERIVED] call-graph in place (+ save)", types = { ["function"] = true, struct = true },
+  { id = "derived-write", label = "Write [DERIVED] call-graph in place (+ save)", types = { ["function"] = true, struct = true },
     writes = "comments", -- T6: tag-comments only, never logic — the ✎ tier
     run = function() vim.cmd("FoxSymdepsDerived!") end },
-  { label = "Source ↔ ASM explorer", types = { ["function"] = true },
+  { id = "asm-explorer", label = "Source ↔ ASM explorer", types = { ["function"] = true },
     run = function() require("fox-symdeps.asmexplorer").open(pal()) end },
-  { label = "SHIPPED asm — this function in the ACTUAL binary (1:1 sidecar)", types = { ["function"] = true },
+  { id = "asm-shipped", label = "SHIPPED asm — this function in the ACTUAL binary (1:1 sidecar)", types = { ["function"] = true },
     run = function() require("fox-symdeps.asmshipped").open(pal()) end },
-  { label = "Branch tags (data-dependent ▲)", types = { ["function"] = true },
+  { id = "branch-tags", label = "Branch tags (data-dependent ▲)", types = { ["function"] = true },
     run = function() require("fox-symdeps.branchtag").toggle() end },
   -- struct
-  { label = "Cache-straddle diagnostics", types = { struct = true },
+  { id = "diagnostics", label = "Cache-straddle diagnostics", types = { struct = true },
     run = function() require("fox-symdeps.diagnostics").toggle() end },
-  { label = "Ambient layout lens (inline size)", types = { struct = true },
+  { id = "ambient", label = "Ambient layout lens (inline size)", types = { struct = true },
     run = function() require("fox-symdeps.ambient").toggle() end },
-  { label = "Lock layout — insert static_assert(sizeof/alignof)", types = { struct = true },
+  { id = "lock-layout", label = "Lock layout — insert static_assert(sizeof/alignof)", types = { struct = true },
     writes = "code", -- inserts a SOURCE line (the one sanctioned code-writer) — the ⚠ tier
     run = function() require("fox-symdeps.assertion").insert() end },
 }
+
+-- pure: the display label with its derived bind suffix — `bind` (launcher rows carry theirs
+-- directly) or the keymap registry's action_id→lhs map. No bind → label unchanged.
+function M._bind_suffix(a, binds)
+  local b = a.bind or (a.id and binds and binds[a.id])
+  return b and (a.label .. "  (" .. b .. ")") or a.label
+end
 
 -- filter the registry for a lowercased tag type; "" (not in a block) → the universal actions only.
 -- An optional per-item `when(ctx)` gate adds RUNTIME context-gating (§6: "the menu shows only
@@ -182,9 +191,14 @@ end
 -- every other field (label, writes, …) reads through to the registry row via __index, so the
 -- renderer sees the SAME item shape from every invoker — identical popups by construction.
 function M.menu_rows(acts, ctx)
+  local okf, fox = pcall(require, "fox-symdeps")
+  local binds = (okf and fox.action_binds and fox.action_binds()) or {}
   local rows = {}
   for _, a in ipairs(acts) do
-    rows[#rows + 1] = setmetatable({ run = function() M.run(a, ctx) end }, { __index = a })
+    -- the bind suffix is DERIVED here (one site, keymap-registry-sourced) so every row shows
+    -- its key the same way — the wrapper's own label wins over __index passthrough.
+    rows[#rows + 1] = setmetatable({ run = function() M.run(a, ctx) end, label = M._bind_suffix(a, binds) },
+                                   { __index = a })
   end
   return rows
 end

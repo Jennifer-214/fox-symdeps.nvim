@@ -1,7 +1,7 @@
 -- actions: registry gating + verbatim row pass-through + layer-stack collapse (pure).
 -- Run: nvim -l tests/test_actions.lua  — the menu-seam teeth the fleet found missing
 -- (cd971ac claimed headless proofs that were never committed; these are them, permanent).
-package.path = "./lua/?.lua;" .. package.path
+package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 local A = require("fox-symdeps.actions")
 
 local pass, fail = 0, 0
@@ -9,6 +9,34 @@ local function ok(c, m) if c then pass = pass + 1 else fail = fail + 1; io.write
 local function has(list, id)
   for _, a in ipairs(list) do if a.id == id then return true end end
   return false
+end
+
+-- bind-suffix derivation (operator ask 2026-08-13: every menu row shows its key) — pure
+ok(A._bind_suffix({ label = "L", id = "hud" }, { hud = "<leader>dd" }) == "L  (<leader>dd)",
+   "action-row suffix derives from the keymap registry's action_id map")
+ok(A._bind_suffix({ label = "L", bind = "<leader>dw" }, {}) == "L  (<leader>dw)",
+   "launcher rows carry their bind directly")
+ok(A._bind_suffix({ label = "L", id = "no-bind-row" }, { hud = "<leader>dd" }) == "L",
+   "row without a bind renders unchanged")
+
+-- keymap-registry ↔ action-registry parity (the anti-drift tooth): every action_id in the
+-- keymap SPEC must resolve to a real action row id, and every registry row must carry an id.
+do
+  local fox = require("fox-symdeps")
+  local ids = {}
+  for _, a in ipairs(A.registry) do
+    ok(a.id ~= nil, "every action row carries an id (found one without)")
+    ok(ids[a.id] == nil, "action ids are unique (dup: " .. tostring(a.id) .. ")")
+    ids[a.id] = true
+  end
+  local n_linked = 0
+  for _, r in ipairs(fox._keymap_spec()) do
+    if r.action_id then
+      n_linked = n_linked + 1
+      ok(ids[r.action_id], ("keymap %s action_id %q resolves to a real action row"):format(r.lhs, r.action_id))
+    end
+  end
+  ok(n_linked >= 9, "the bind links exist (expected the 9 twin rows at minimum, got " .. n_linked .. ")")
 end
 
 -- gating: universal vs typed vs when(ctx)
