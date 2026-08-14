@@ -126,6 +126,29 @@ ok(A.follow_target("BG_Evaluate<64>", "Portfolio_Init") == "BG_Evaluate",
 ok(A.KEYWORDS["for"] and A.KEYWORDS["return"] and not A.KEYWORDS["Portfolio_Init"],
    "keyword guard knows keywords, not identifiers (the 'for' dogfood bug)")
 
+-- call-follow: <CR> on a call retargets to the callee (the shipped call-graph walk)
+ok(A.call_target("   9a36:\tcall   143b40 <void tt::OrderManager_Shutdown<64u>(tt::OrderManagerState<64u>*)>")
+   == "tt::OrderManager_Shutdown", "direct call → callee base symbol (namespace kept, template stripped)")
+ok(A.call_target("   9a48:\tcall   9a52 <Money_FromBinary(FPN_Binary<64u>)+0x26>")
+   == "Money_FromBinary", "+0x mid-function offset strips to the function itself")
+local t, plt = A.call_target("   9a52:\tcall   92d0 <__stack_chk_fail@plt>")
+ok(t == nil and type(plt) == "string" and plt:find("@plt"), "@plt runtime target → nil + NAMED skip")
+ok(A.call_target("   9a60:\tcall   *%rax") == nil, "indirect call (no static target) → nil")
+ok(A.call_target("   9a64:\tmov    %rax,%rbx") == nil, "non-call instruction → nil")
+ok(A.call_target("   9a70:\tcallq  53c00 <main>") == "main", "callq variant + plain C symbol")
+
+-- branch marks: asmdiff's classifier over DISPLAY rows (the explorer's ▲, on shipped code)
+local bm_fix = {
+  "0000000000401000 <F(long*)>:",
+  "  · X.hpp:10",
+  "   401000:\tcmpq   $0x0,0x8(%rdi)",   -- memory-deref compare → data-dependent
+  "   401008:\tjne    401020 <F(long*)+0x20>",
+  "   40100a:\tret",
+}
+local bm = A.branch_marks(bm_fix)
+ok(bm.n_data == 1 and bm.rows[1] == 4, "memory-compare jcc classified data-dep, mapped to the DISPLAY row")
+ok(A.branch_marks({ "  · X.hpp:1", "   1:\tret" }).n_data == 0, "no branches → zero, never noise")
+
 -- sweep order: newest recorded binary first (recency-as-rule)
 local cars = A.sweep_order({
   { path = "a", prov = { mtime = 100 } },

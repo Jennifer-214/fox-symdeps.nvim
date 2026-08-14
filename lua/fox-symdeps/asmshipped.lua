@@ -151,6 +151,44 @@ function M.line_map(block_lines, src_abs, offset)
            n_insn = n_insn, n_simd = n_simd }
 end
 
+-- branch classification over the card's display rows — REUSES asmdiff.classify_branches (the
+-- explorer's ▲ machinery; canonical sister, never a second classifier). Returns the display
+-- rows that are data-dependent (mispredict-risk) + the counts for the header chip.
+function M.branch_marks(display)
+  local ad = require("fox-symdeps.asmdiff")
+  local instrs, rowmap = {}, {}
+  for i, l in ipairs(display) do
+    local txt = l:match("^%s+%x+:\t(.+)$")
+    if txt then
+      instrs[#instrs + 1] = txt
+      rowmap[#instrs] = i
+    end
+  end
+  local c = ad.classify_branches(instrs)
+  local rows = {}
+  for _, d in ipairs(c.details or {}) do
+    if d.data and rowmap[d.idx] then rows[#rows + 1] = rowmap[d.idx] end
+  end
+  return { rows = rows, n_data = c.data or 0, n_indep = c.indep or 0, n_cmov = c.cmov or 0 }
+end
+
+-- <CR> on a `call` instruction → the CALLEE's base symbol (walking the SHIPPED call graph).
+-- nil for non-calls/indirect (`call *%rax` — no static target); nil+name for @plt runtime
+-- targets (named-skipped — libc isn't in the sidecars). `+0x` mid-function offsets strip to
+-- the function itself.
+function M.call_target(line)
+  local inner = line and line:match("^%s+%x+:\tcallq?%s+%S*%s*<(.+)>%s*$")
+  if not inner then return nil end
+  inner = inner:gsub("%+0x%x+$", "")
+  if inner:find("@plt", 1, true) then return nil, inner end
+  local head = inner
+  local p = inner:find("(", 1, true)
+  if p then head = inner:sub(1, p - 1) end
+  local name = head:match("(%S+)%s*$") or head
+  local base = M.base_symbol(name)
+  return base ~= "" and base or nil
+end
+
 -- the BUDGET chip (§12 rung 3, operator ask: "within instruction budget"): the blessed ratchet
 -- (tools/lib/latency_path_budgets.json) vs the SHIPPED count. Different BASES by construction —
 -- the ratchet measures a per-TU probe, the card counts the LINKED block (inlining differs) —
@@ -393,7 +431,21 @@ local function jump_to_marker()
   if not S then return end
   local row = vim.api.nvim_win_get_cursor(S.win)[1]
   local j = S.sync.jump and S.sync.jump[row]
-  if not j then return end
+  if not j then
+    -- not a marker row: a `call` instruction retargets the card to the CALLEE (the shipped
+    -- call-graph walk); `b` pops back. Runtime @plt targets are named-skipped.
+    local line = (vim.api.nvim_buf_get_lines(S.buf, row - 1, row, false) or {})[1]
+    local target, plt = M.call_target(line)
+    if target and not S.busy then
+      S.stack = S.stack or {}
+      S.stack[#S.stack + 1] = S.symbol
+      resolve_into(target, S.sync.srcbuf, S.sync.srcwin)
+    elseif plt then
+      require("fox-symdeps.ui").notify_raw("shipped-asm: " .. plt .. " is a runtime-lib target — not in the sidecars",
+                                           vim.log.levels.INFO)
+    end
+    return
+  end
   local win = (S.sync.srcwin and vim.api.nvim_win_is_valid(S.sync.srcwin)) and S.sync.srcwin or nil
   if not win then
     return require("fox-symdeps.ui").notify_raw("fox-symdeps · source window gone — reopen a code window", vim.log.levels.WARN)
@@ -438,6 +490,11 @@ local function ensure_card(title, invoking_win)
       resolve_into(S.symbol, S.sync.srcbuf, S.sync.srcwin)
     end
   end, { buffer = buf, nowait = true, desc = "fox-symdeps: re-resolve (after a rebuild)" })
+  vim.keymap.set("n", "b", function()
+    if S and S.stack and #S.stack > 0 and not S.busy then
+      resolve_into(table.remove(S.stack), S.sync.srcbuf, S.sync.srcwin)
+    end
+  end, { buffer = buf, nowait = true, desc = "fox-symdeps: back (call-follow stack)" })
   S.aug = vim.api.nvim_create_augroup("FoxSymdepsAsmShipped", { clear = true })
   vim.api.nvim_create_autocmd("CursorMoved", {   -- source → asm sync (global; srcbuf changes on follow)
     group = S.aug,
@@ -564,10 +621,12 @@ resolve_into = function(symbol, srcbuf, srcwin)
               lines[#lines + 1] = ""
             end
             local chip, over = M.budget_chip(total, load_budgets(root)[symbol])
-            lines[insn_at] = ("  %d shipped instruction%s · %d vector-reg op%s%s%s"):format(
+            local bm = M.branch_marks(lines)
+            lines[insn_at] = ("  %d shipped instruction%s · %d vector-reg op%s · %d ▲ data-dep / %d cond / %d cmov%s%s"):format(
               total, total == 1 and "" or "s", simd, simd == 1 and "" or "s",
+              bm.n_data, bm.n_data + bm.n_indep, bm.n_cmov,
               chip and ("  ·  " .. chip) or "",
-              next(by_src) and "  ·  synced (<CR> jumps · r refreshes)"
+              next(by_src) and "  ·  synced (<CR> jumps markers AND calls · b back · r refreshes)"
                             or "  ·  no line info — rebuild (./build.sh engine|gui) for source-sync")
             local mark = verdict == "fresh" and "" or " · ⚠ " .. verdict
             if over then mark = mark .. " · ⚠ OVER RATCHET" end
@@ -575,6 +634,12 @@ resolve_into = function(symbol, srcbuf, srcwin)
                      symbol, pick.prov.binary:match("[^/]+$") or pick.prov.binary, mark),
                    { srcbuf = srcbuf, srcwin = srcwin, by_src = by_src, src_of = src_of, jump = jump },
                    srcwin)
+            -- ▲ data-dep marks — the explorer's visual language, on SHIPPED code (jitter risk
+            -- per instruction; the classifier is asmdiff's, never a second implementation)
+            for _, drow in ipairs(bm.rows) do
+              pcall(vim.api.nvim_buf_set_extmark, S.buf, NS_PAINT, drow - 1, 0,
+                    { virt_text = { { "  ▲ data-dep", "FoxSymdepsAlarm" } }, virt_text_pos = "eol" })
+            end
             S.symbol, S.busy = symbol, false
           end
         end)
