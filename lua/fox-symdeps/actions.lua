@@ -95,6 +95,20 @@ M.registry = {
   { id = "lock-layout", label = "Lock layout — insert static_assert(sizeof/alignof)", types = { struct = true },
     writes = "code", -- inserts a SOURCE line (the one sanctioned code-writer) — the ⚠ tier
     run = function() require("fox-symdeps.assertion").insert() end },
+  -- bless flows, IN-EDITOR (operator ask 2026-08-14): nvim's :terminal is a REAL pty, so
+  -- bless.py's isatty human-check passes and the D-394 control (diff + typed confirmation)
+  -- runs intact inside the editor — the control is anti-AGENT, not anti-convenience. These
+  -- never write anything themselves; the terminal flow does, with the operator confirming.
+  { id = "bless-latency", label = "Bless — latency budgets (terminal: diff + typed confirm)", all = true,
+    run = function()
+      vim.cmd("botright 20split | terminal python3 tools/check_latency_path_conformance.py --update-budgets")
+      vim.cmd("startinsert")
+    end },
+  { id = "bless-golden", label = "Bless — goldens console (terminal: bless.py --console)", all = true,
+    run = function()
+      vim.cmd("botright 20split | terminal python3 tools/bless.py --console")
+      vim.cmd("startinsert")
+    end },
 }
 
 -- pure: the display label with its derived bind suffix — `bind` (launcher rows carry theirs

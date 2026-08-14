@@ -31,6 +31,12 @@ local function flags_for(file)
   local dir = vim.fn.fnamemodify(file, ":h")
   local cc = vim.fs.find("compile_commands.json", { upward = true, path = dir })[1]
   if not cc then return nil end
+  -- TD-257 (the best-of-both split, operator 2026-08-14): FACTS read the SHIPPING db —
+  -- build/compile_commands.json regenerates every configure and carries the real shipped
+  -- flags (-DNDEBUG, target defines) — while the root symlink keeps serving the EDITOR its
+  -- liveness db. Every probe/asm consumer of flags_for inherits shipped truth here.
+  local ship = vim.fs.dirname(cc) .. "/build/compile_commands.json"
+  if vim.fn.filereadable(ship) == 1 then cc = ship end
   local ok, txt = pcall(vim.fn.readfile, cc)
   if not ok then return nil end
   local okj, db = pcall(vim.json.decode, table.concat(txt, "\n"))
