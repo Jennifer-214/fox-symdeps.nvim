@@ -236,6 +236,8 @@ function M._keymap_spec()
       desc = "fox-symdeps: use-lens (in-code tags)" },
     { lhs = "<leader>dm", hint = "action menu", fn = function() vim.cmd("FoxSymdepsMenu") end,
       desc = "fox-symdeps: action menu (context-filtered by tag [TYPE])" },
+    { lhs = "<leader>dn", hint = "output log", action_id = "output-log", fn = function() require("fox-symdeps.ui").output() end,
+      desc = "fox-symdeps: output log (every notification, newest first — no :Noice digging)" },
     { lhs = "]u", hint = "next use", fn = function() require("fox-symdeps.highlight").next() end,
       desc = "fox-symdeps: next use" },
     { lhs = "[u", hint = "prev use", fn = function() require("fox-symdeps.highlight").prev() end,

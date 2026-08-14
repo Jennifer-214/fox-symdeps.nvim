@@ -95,6 +95,8 @@ M.registry = {
   { id = "lock-layout", label = "Lock layout — insert static_assert(sizeof/alignof)", types = { struct = true },
     writes = "code", -- inserts a SOURCE line (the one sanctioned code-writer) — the ⚠ tier
     run = function() require("fox-symdeps.assertion").insert() end },
+  { id = "output-log", label = "Output log — every notification, newest first", all = true,
+    run = function() require("fox-symdeps.ui").output() end },
   -- bless flows, IN-EDITOR (operator ask 2026-08-14): nvim's :terminal is a REAL pty, so
   -- bless.py's isatty human-check passes and the D-394 control (diff + typed confirmation)
   -- runs intact inside the editor — the control is anti-AGENT, not anti-convenience. These
