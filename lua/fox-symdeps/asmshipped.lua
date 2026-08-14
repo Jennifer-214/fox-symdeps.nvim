@@ -119,7 +119,7 @@ end
 -- H7/H8 join rides the probe-cutover rung).
 function M.line_map(block_lines, src_abs, offset)
   offset = offset or 0
-  local display, src_of, by_src, jump, n_insn = {}, {}, {}, {}, 0
+  local display, src_of, by_src, jump, n_insn, n_simd = {}, {}, {}, {}, 0, 0
   local cur_src = nil
   for _, line in ipairs(block_lines) do
     local path, ln = line:match("^(/[^:]+):(%d+)")
@@ -138,6 +138,7 @@ function M.line_map(block_lines, src_abs, offset)
       display[#display + 1] = line
       if line:match("^%s+%x+:\t") then
         n_insn = n_insn + 1
+        if line:match("[xyz]mm%d") then n_simd = n_simd + 1 end
         if cur_src then
           src_of[offset + #display] = cur_src
           by_src[cur_src] = by_src[cur_src] or {}
@@ -146,7 +147,20 @@ function M.line_map(block_lines, src_abs, offset)
       end
     end
   end
-  return { display = display, src_of = src_of, by_src = by_src, jump = jump, n_insn = n_insn }
+  return { display = display, src_of = src_of, by_src = by_src, jump = jump,
+           n_insn = n_insn, n_simd = n_simd }
+end
+
+-- the BUDGET chip (§12 rung 3, operator ask: "within instruction budget"): the blessed ratchet
+-- (tools/lib/latency_path_budgets.json) vs the SHIPPED count. Different BASES by construction —
+-- the ratchet measures a per-TU probe, the card counts the LINKED block (inlining differs) —
+-- so the chip NAMES the basis (Class 57): the over/under signal lands, the number is never
+-- passed off as same-basis. → nil when the function has no ratchet row.
+function M.budget_chip(total, brow)
+  if not (brow and brow.instructions) then return nil, false end
+  local over = total > brow.instructions
+  return ("ratchet %d probe-basis %s"):format(brow.instructions,
+                                              over and "⚠ shipped exceeds" or "✓"), over
 end
 
 -- newest-first over parsed sidecars (recorded binary mtime; recency-as-rule §11(iii)).
@@ -264,6 +278,15 @@ local function extract(path, lnum, cb)
     while #lines > 0 and lines[#lines] == "" do table.remove(lines) end
     vim.schedule(function() cb(lines) end)
   end)
+end
+
+-- the operator-blessed instruction ratchet (missing file = no chips, never an error)
+local function load_budgets(root)
+  local f = io.open(root .. "/tools/lib/latency_path_budgets.json", "r")
+  if not f then return {} end
+  local txt = f:read("*a"); f:close()
+  local ok, d = pcall(vim.json.decode, txt)
+  return (ok and type(d) == "table") and d or {}
 end
 
 -- freshness: recorded sha16 vs the binary's current sha16. cb("fresh"|"stale"|"binary-missing", now16)
@@ -526,7 +549,7 @@ resolve_into = function(symbol, srcbuf, srcwin)
             local insn_at = #lines + 1
             lines[#lines + 1] = ""   -- per-function instruction count, filled after mapping
             lines[#lines + 1] = ""
-            local by_src, src_of, jump, total = {}, {}, {}, 0
+            local by_src, src_of, jump, total, simd = {}, {}, {}, 0, 0
             for _, b in ipairs(out) do
               local m = M.line_map(b, src_abs, #lines)
               vim.list_extend(lines, m.display)
@@ -537,13 +560,17 @@ resolve_into = function(symbol, srcbuf, srcwin)
                 vim.list_extend(by_src[sl], rows)
               end
               total = total + m.n_insn
+              simd = simd + m.n_simd
               lines[#lines + 1] = ""
             end
-            lines[insn_at] = ("  %d shipped instruction%s%s"):format(
-              total, total == 1 and "" or "s",
-              next(by_src) and "  ·  synced (move in either pane · <CR> jumps markers · r refreshes)"
-                            or "  ·  no line info in this sidecar — rebuild (./build.sh engine|gui) for source-sync")
+            local chip, over = M.budget_chip(total, load_budgets(root)[symbol])
+            lines[insn_at] = ("  %d shipped instruction%s · %d vector-reg op%s%s%s"):format(
+              total, total == 1 and "" or "s", simd, simd == 1 and "" or "s",
+              chip and ("  ·  " .. chip) or "",
+              next(by_src) and "  ·  synced (<CR> jumps · r refreshes)"
+                            or "  ·  no line info — rebuild (./build.sh engine|gui) for source-sync")
             local mark = verdict == "fresh" and "" or " · ⚠ " .. verdict
+            if over then mark = mark .. " · ⚠ OVER RATCHET" end
             render(lines, ("asm · SHIPPED 1:1 · %s · %s%s"):format(
                      symbol, pick.prov.binary:match("[^/]+$") or pick.prov.binary, mark),
                    { srcbuf = srcbuf, srcwin = srcwin, by_src = by_src, src_of = src_of, jump = jump },

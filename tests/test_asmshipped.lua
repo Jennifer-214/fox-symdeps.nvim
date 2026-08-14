@@ -95,6 +95,16 @@ ok(m.by_src[60] and #m.by_src[60] == 1 and m.by_src[60][1] == 7, "discriminator 
 ok(m.src_of[4] == 58 and m.src_of[7] == 60, "src_of maps instruction rows back to source lines")
 ok(m.src_of[9] == nil and m.by_src[99] == nil, "foreign-attributed instructions stay OUT of the sync maps")
 ok(m.n_insn == 4, "shipped instruction count = ALL instruction rows (the budget number)")
+ok(m.n_simd == 1, "vector-reg ops counted (the vpxor xmm row)")
+
+-- budget chip (§12 rung 3): basis NAMED, over flag drives the winbar mark
+local c1, o1 = A.budget_chip(102, { instructions = 120 })
+ok(c1 and c1:find("ratchet 120") and c1:find("✓") and not o1, "under ratchet → ✓, not over")
+local c2, o2 = A.budget_chip(4389, { instructions = 3598 })
+ok(c2 and c2:find("⚠ shipped exceeds") and o2, "over ratchet → named ⚠ + over flag")
+ok(c1:find("probe%-basis") ~= nil, "the chip NAMES its basis (probe vs linked — never same-basis-passed-off)")
+local c3, o3 = A.budget_chip(50, nil)
+ok(c3 == nil and o3 == false, "no ratchet row → no chip, never an error")
 local mo = A.line_map(lm_fix, "/home/y/CoreFrameworks/Portfolio.hpp", 10)
 ok(mo.by_src[58][1] == 14 and mo.src_of[14] == 58, "offset shifts map keys to final display-buffer rows")
 
