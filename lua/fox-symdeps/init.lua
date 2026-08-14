@@ -182,8 +182,11 @@ local function set_highlights(p)
   local ground = "#1a140e"
   local okn, nh = pcall(vim.api.nvim_get_hl, 0, { name = "Normal" })
   if okn and nh and nh.bg then ground = ("#%06x"):format(nh.bg) end
-  local wheat = p.warn or "#d4b483"
-  hl("FoxSymdepsSyncLine", { bg = p.sync or mix(wheat, ground, 1 - (p.sync_alpha or 0.5)) })
+  -- base = the SELECTION peach (operator 2026-08-14: "back to the peach matching the source")
+  -- so both panes read as ONE highlight family — source gets the solid bar, asm the
+  -- translucent wash of the same hue.
+  local band_base = p.selection or "#b5702f"
+  hl("FoxSymdepsSyncLine", { bg = p.sync or mix(band_base, ground, 1 - (p.sync_alpha or 0.5)) })
   hl("FoxSymdepsWarn", { fg = p.warn or "#d4b483", bold = true })                            -- wheat — caution (▲ straddle)
   hl("FoxSymdepsAlarm", { fg = p.alarm or "#b0603a", bold = true })                          -- terracotta — breaks/danger (not raw red)
   hl("FoxSymdepsOk", { fg = p.ok or "#7aab88" })                                             -- green — clean/ok
