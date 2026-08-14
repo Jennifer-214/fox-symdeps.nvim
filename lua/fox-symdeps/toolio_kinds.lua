@@ -16,6 +16,7 @@ M.consumed = {
   ["grammar/1"]       = { consumer = "nodemodel", what = "foxtag grammar --json → the tag node model (0.3)" },
   ["defining_site/1"] = { consumer = "docview",   what = "citable_ids --where → [REFERENCE] defining-site floats (0.4)" },
   ["cited_path/1"]    = { consumer = "docview",   what = "citable_ids --resolve → doc-shaped [REFERENCE] resolution + dead-link check (0.4)" },
+  ["register_fit/1"]  = { consumer = "regfit",    what = "check_register_fit --json → the RC-F per-field access-cost card (0.5)" },
 }
 
 -- registry keys that are NOT renderable payload kinds, with the reason (toolio.py's own vocab).

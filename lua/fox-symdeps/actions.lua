@@ -95,6 +95,8 @@ M.registry = {
   { id = "lock-layout", label = "Lock layout — insert static_assert(sizeof/alignof)", types = { struct = true },
     writes = "code", -- inserts a SOURCE line (the one sanctioned code-writer) — the ⚠ tier
     run = function() require("fox-symdeps.assertion").insert() end },
+  { id = "regfit", label = "Register-fit — per-field access cost (single-mov vs shift/mask)", types = { struct = true },
+    run = function() require("fox-symdeps.regfit").open(pal()) end },
   { id = "output-log", label = "Output log — every notification, newest first", all = true,
     run = function() require("fox-symdeps.ui").output() end },
   -- bless flows, IN-EDITOR (operator ask 2026-08-14): nvim's :terminal is a REAL pty, so

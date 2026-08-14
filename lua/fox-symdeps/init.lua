@@ -241,6 +241,8 @@ function M._keymap_spec()
       desc = "fox-symdeps: action menu (context-filtered by tag [TYPE])" },
     { lhs = "<leader>dn", hint = "output log", action_id = "output-log", fn = function() require("fox-symdeps.ui").output() end,
       desc = "fox-symdeps: output log (every notification, newest first — no :Noice digging)" },
+    { lhs = "<leader>dR", hint = "register-fit card", action_id = "regfit", fn = function() require("fox-symdeps.regfit").open(M.config.palette) end,
+      desc = "fox-symdeps: register-fit — per-field access cost for the enclosing [STRUCT] (RC-F, advisory)" },
     { lhs = "]u", hint = "next use", fn = function() require("fox-symdeps.highlight").next() end,
       desc = "fox-symdeps: next use" },
     { lhs = "[u", hint = "prev use", fn = function() require("fox-symdeps.highlight").prev() end,
