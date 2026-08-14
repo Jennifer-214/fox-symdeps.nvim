@@ -72,6 +72,56 @@ function M.slice(text, symbol)
   return blocks
 end
 
+-- does a DWARF marker path refer to the invoking source buffer? Exact match first; else
+-- basename + parent-dir (the engine tree is reachable via the workspace symlink too, so the
+-- compile-time path and the buffer's path can differ by root — the last two components are
+-- the stable identity).
+function M.same_source(marker_path, src_abs)
+  if not (marker_path and src_abs) then return false end
+  if marker_path == src_abs then return true end
+  local mb, sb = marker_path:match("([^/]+)$"), src_abs:match("([^/]+)$")
+  if mb ~= sb then return false end
+  local mp, sp = marker_path:match("([^/]+)/[^/]+$"), src_abs:match("([^/]+)/[^/]+$")
+  return mp == sp
+end
+
+-- pure: an extracted `-l` block → { display, src_of, by_src, n_insn }. Marker lines
+-- (`/abs/path:NNN`) become dimmed `· name:NNN` rows — `· from <file>:NNN` when the code was
+-- INLINED FROM another file (visible cross-TU attribution, which no per-TU compile can show);
+-- instruction rows under a current-file marker enter the bidirectional maps. n_insn = the
+-- function's SHIPPED instruction count (the budget-checkable number — H7/H8 join rides the
+-- probe-cutover leaf).
+function M.line_map(block_lines, src_abs, offset)
+  offset = offset or 0
+  local display, src_of, by_src, n_insn = {}, {}, {}, 0
+  local cur_src = nil
+  for _, line in ipairs(block_lines) do
+    local path, ln = line:match("^(/[^:]+):(%d+)")
+    if path then
+      local name = path:match("([^/]+)$") or path
+      if M.same_source(path, src_abs) then
+        cur_src = tonumber(ln)
+        display[#display + 1] = ("  · %s:%s"):format(name, ln)
+        src_of[offset + #display] = cur_src
+      else
+        cur_src = nil
+        display[#display + 1] = ("  · from %s:%s"):format(name, ln)
+      end
+    else
+      display[#display + 1] = line
+      if line:match("^%s+%x+:\t") then
+        n_insn = n_insn + 1
+        if cur_src then
+          src_of[offset + #display] = cur_src
+          by_src[cur_src] = by_src[cur_src] or {}
+          table.insert(by_src[cur_src], offset + #display)
+        end
+      end
+    end
+  end
+  return { display = display, src_of = src_of, by_src = by_src, n_insn = n_insn }
+end
+
 -- newest-first over parsed sidecars (recorded binary mtime; recency-as-rule §11(iii)).
 function M.sweep_order(cars)
   table.sort(cars, function(a, b) return (a.prov.mtime or 0) > (b.prov.mtime or 0) end)
@@ -146,7 +196,13 @@ end
 
 -- ── the card ─────────────────────────────────────────────────────────────────────────────────
 
-local function show(lines, title, palette)
+local NS_SYNC = vim.api.nvim_create_namespace("fox_symdeps_asmshipped_sync")
+
+-- show the card; when `sync` = { srcbuf, srcwin, by_src, src_of } is given, wire BIDIRECTIONAL
+-- cursor sync (operator ask 2026-08-13: "highlight the lines on both so they both scroll at the
+-- same time"): source line ↔ its shipped instructions, both panes highlighted, the counterpart
+-- scrolled into view. Each direction fires only from the pane that HAS focus (no ping-pong).
+local function show(lines, title, palette, sync)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "asm"
@@ -158,12 +214,73 @@ local function show(lines, title, palette)
   vim.wo[win].number = false
   vim.wo[win].winbar = "%#FoxSymdepsTitle# " .. title .. " %*"
   vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
-  vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
-                 { buffer = buf, nowait = true, desc = "fox-symdeps: close shipped-asm card" })
+
+  local aug
+  local function cleanup()
+    if aug then pcall(vim.api.nvim_del_augroup_by_id, aug) end
+    if sync and vim.api.nvim_buf_is_valid(sync.srcbuf) then
+      vim.api.nvim_buf_clear_namespace(sync.srcbuf, NS_SYNC, 0, -1)
+    end
+    pcall(vim.api.nvim_win_close, win, true)
+  end
+  vim.keymap.set("n", "q", cleanup, { buffer = buf, nowait = true, desc = "fox-symdeps: close shipped-asm card" })
+
+  if sync and next(sync.by_src) then
+    vim.api.nvim_set_current_win(sync.srcwin)   -- keep the user in their code
+    local function paint(srcline, asmrows)
+      pcall(vim.api.nvim_buf_clear_namespace, sync.srcbuf, NS_SYNC, 0, -1)
+      pcall(vim.api.nvim_buf_clear_namespace, buf, NS_SYNC, 0, -1)
+      if srcline then
+        pcall(vim.api.nvim_buf_set_extmark, sync.srcbuf, NS_SYNC, srcline - 1, 0,
+              { line_hl_group = "FoxSymdepsSelection" })
+      end
+      for _, r in ipairs(asmrows or {}) do
+        pcall(vim.api.nvim_buf_set_extmark, buf, NS_SYNC, r - 1, 0,
+              { line_hl_group = "FoxSymdepsSelection" })
+      end
+    end
+    aug = vim.api.nvim_create_augroup("FoxSymdepsAsmShipped_" .. buf, { clear = true })
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      group = aug, buffer = sync.srcbuf,
+      callback = function()
+        if vim.api.nvim_get_current_win() ~= sync.srcwin then return end
+        if not vim.api.nvim_win_is_valid(win) then return end
+        local sl = vim.api.nvim_win_get_cursor(sync.srcwin)[1]
+        local rows = sync.by_src[sl]
+        if not rows or #rows == 0 then return end
+        paint(sl, rows)
+        pcall(vim.api.nvim_win_set_cursor, win, { rows[1], 0 })
+        vim.api.nvim_win_call(win, function() vim.cmd("normal! zz") end)
+      end,
+    })
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      group = aug, buffer = buf,
+      callback = function()
+        if vim.api.nvim_get_current_win() ~= win then return end
+        if not vim.api.nvim_win_is_valid(sync.srcwin) then return end
+        local ar = vim.api.nvim_win_get_cursor(win)[1]
+        local sl = sync.src_of[ar]
+        if not sl then return end
+        paint(sl, sync.by_src[sl])
+        pcall(vim.api.nvim_win_set_cursor, sync.srcwin, { sl, 0 })
+        vim.api.nvim_win_call(sync.srcwin, function() vim.cmd("normal! zz") end)
+      end,
+    })
+    vim.api.nvim_create_autocmd("WinClosed", {
+      pattern = tostring(win), once = true,
+      callback = function()
+        if aug then pcall(vim.api.nvim_del_augroup_by_id, aug) end
+        if vim.api.nvim_buf_is_valid(sync.srcbuf) then
+          pcall(vim.api.nvim_buf_clear_namespace, sync.srcbuf, NS_SYNC, 0, -1)
+        end
+      end,
+    })
+  end
 end
 
 function M.open(palette)
   local buf = vim.api.nvim_get_current_buf()
+  local srcwin = vim.api.nvim_get_current_win()
   local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
   local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
   local raw = (blk and blk.type == "FUNCTION" and blk.name) or vim.fn.expand("<cword>")
@@ -208,6 +325,7 @@ function M.open(palette)
           out[i] = blines
           done = done + 1
           if done == #hits then
+            local src_abs = vim.api.nvim_buf_get_name(buf)
             local lines = {
               ("  shipped: %s · sha16 %s · emitted at %s"):format(pick.prov.binary, pick.prov.sha16, pick.prov.head),
             }
@@ -220,13 +338,30 @@ function M.open(palette)
             if #hits > 1 then
               lines[#lines + 1] = ("  %d instantiation blocks in this binary (all shown — each is real shipped code)"):format(#hits)
             end
+            local insn_at = #lines + 1
+            lines[#lines + 1] = ""   -- per-function instruction count, filled after mapping
             lines[#lines + 1] = ""
+            -- per-block line_map: markers become dimmed rows, instructions enter the
+            -- bidirectional maps (indices are FINAL display-buffer line numbers)
+            local by_src, src_of, total = {}, {}, 0
             for _, b in ipairs(out) do
-              vim.list_extend(lines, b)
+              local m = M.line_map(b, src_abs, #lines)
+              vim.list_extend(lines, m.display)
+              for k, v in pairs(m.src_of) do src_of[k] = v end
+              for sl, rows in pairs(m.by_src) do
+                by_src[sl] = by_src[sl] or {}
+                vim.list_extend(by_src[sl], rows)
+              end
+              total = total + m.n_insn
               lines[#lines + 1] = ""
             end
+            lines[insn_at] = ("  %d shipped instruction%s%s"):format(
+              total, total == 1 and "" or "s",
+              next(by_src) and "  ·  cursor-synced (both panes highlight; move in either)"
+                            or "  ·  no line info in this sidecar — rebuild (./build.sh engine|gui) for source-sync")
             local mark = verdict == "fresh" and "" or " · ⚠ " .. verdict
-            show(lines, ("asm · SHIPPED 1:1 · %s · %s%s"):format(symbol, pick.prov.binary:match("[^/]+$") or pick.prov.binary, mark), palette)
+            show(lines, ("asm · SHIPPED 1:1 · %s · %s%s"):format(symbol, pick.prov.binary:match("[^/]+$") or pick.prov.binary, mark),
+                 palette, { srcbuf = buf, srcwin = srcwin, by_src = by_src, src_of = src_of })
           end
         end)
       end

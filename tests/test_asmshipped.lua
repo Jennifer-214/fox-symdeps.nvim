@@ -53,6 +53,37 @@ ok(#blocks == 2, "two instantiations → two blocks")
 ok(blocks[1][2] and blocks[1][2]:find("push") ~= nil and #blocks[1] == 3, "block body intact (header + 2 insns)")
 ok(#A.slice(fixture, "Notify_Send") == 0, "absent symbol → ZERO blocks (the inlined-away fact, not an error)")
 
+-- same_source: the engine↔workspace symlink duality (compile-time path vs buffer path)
+ok(A.same_source("/a/CoreFrameworks/Portfolio.hpp", "/a/CoreFrameworks/Portfolio.hpp"), "exact path matches")
+ok(A.same_source("/home/x/eng/CoreFrameworks/Portfolio.hpp", "/home/y/ws/CoreFrameworks/Portfolio.hpp"),
+   "different roots, same last-two components → same source (symlink duality)")
+ok(not A.same_source("/a/CoreFrameworks/Portfolio.hpp", "/a/CoreFrameworks/Other.hpp"), "different basename rejected")
+ok(not A.same_source("/a/MemHeaders/Run.hpp", "/a/EngineSharded/Run.hpp"), "same basename, different parent rejected")
+
+-- line_map: -l markers → dimmed rows + bidirectional maps + shipped instruction count
+local lm_fix = {
+  "0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:",
+  "Portfolio_Init():",
+  "/home/x/CoreFrameworks/Portfolio.hpp:58",
+  "   53c00:\tvpxor  %xmm1,%xmm1,%xmm1",
+  "   53c04:\txor    %eax,%eax",
+  "/home/x/CoreFrameworks/Portfolio.hpp:60 (discriminator 2)",
+  "   53c06:\tret",
+  "/home/x/MemHeaders/Other.hpp:99",
+  "   53c07:\tnop",
+}
+local m = A.line_map(lm_fix, "/home/y/CoreFrameworks/Portfolio.hpp")
+ok(m.display[3] == "  · Portfolio.hpp:58", "current-file marker renders dimmed name:line")
+ok(m.display[8] == "  · from Other.hpp:99", "foreign-file marker renders 'from' (inlined-from attribution)")
+ok(m.by_src[58] and #m.by_src[58] == 2 and m.by_src[58][1] == 4 and m.by_src[58][2] == 5,
+   "by_src[58] = the two instruction rows under its marker")
+ok(m.by_src[60] and #m.by_src[60] == 1 and m.by_src[60][1] == 7, "discriminator suffix parses; by_src[60] = ret row")
+ok(m.src_of[4] == 58 and m.src_of[7] == 60, "src_of maps instruction rows back to source lines")
+ok(m.src_of[9] == nil and m.by_src[99] == nil, "foreign-attributed instructions stay OUT of the sync maps")
+ok(m.n_insn == 4, "shipped instruction count = ALL instruction rows (the budget number)")
+local mo = A.line_map(lm_fix, "/home/y/CoreFrameworks/Portfolio.hpp", 10)
+ok(mo.by_src[58][1] == 14 and mo.src_of[14] == 58, "offset shifts map keys to final display-buffer rows")
+
 -- sweep order: newest recorded binary first (recency-as-rule)
 local cars = A.sweep_order({
   { path = "a", prov = { mtime = 100 } },
