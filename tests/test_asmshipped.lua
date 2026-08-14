@@ -106,13 +106,15 @@ ok(m.jump[8] and m.jump[8].path == "/home/x/MemHeaders/Other.hpp" and m.jump[8].
 ok(m.jump[4] == nil, "instruction rows carry no jump")
 ok(mo.jump[13] and mo.jump[13].line == 58, "jump keys shift with the display offset")
 
--- follow decision (pure): retarget ONLY on a NEW enclosing FUNCTION — everything else HOLDS
-ok(A.follow_target(nil, "X") == nil, "no enclosing block → hold")
-ok(A.follow_target({ type = "STRUCT", name = "FPN_Binary" }, "X") == nil, "struct → hold (never flicker)")
-ok(A.follow_target({ type = "FUNCTION", name = "Portfolio_Init" }, "Portfolio_Init") == nil,
+-- follow decision (pure): retarget ONLY on a NEW candidate symbol — everything else HOLDS
+ok(A.follow_target(nil, "X") == nil, "no candidate → hold")
+ok(A.follow_target("", "X") == nil, "empty candidate → hold")
+ok(A.follow_target("Portfolio_Init", "Portfolio_Init") == nil,
    "same function → hold (no redundant re-resolve)")
-ok(A.follow_target({ type = "FUNCTION", name = "BG_Evaluate<64>" }, "Portfolio_Init") == "BG_Evaluate",
+ok(A.follow_target("BG_Evaluate<64>", "Portfolio_Init") == "BG_Evaluate",
    "new function → retarget on the stripped base symbol")
+ok(A.KEYWORDS["for"] and A.KEYWORDS["return"] and not A.KEYWORDS["Portfolio_Init"],
+   "keyword guard knows keywords, not identifiers (the 'for' dogfood bug)")
 
 -- sweep order: newest recorded binary first (recency-as-rule)
 local cars = A.sweep_order({

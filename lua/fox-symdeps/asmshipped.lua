@@ -155,13 +155,60 @@ function M.sweep_order(cars)
   return cars
 end
 
--- follow decision, pure: enclosing block → the NEW base symbol to retarget to, or nil (HOLD —
--- nil/non-function regions and the already-shown function never flicker the card).
-function M.follow_target(blk, cur_symbol)
-  if not blk or blk.type ~= "FUNCTION" then return nil end
-  local sym = M.base_symbol(blk.name)
+-- follow decision, pure: a candidate symbol → the NEW base to retarget to, or nil (HOLD —
+-- nil/empty and the already-shown function never flicker the card).
+function M.follow_target(sym, cur_symbol)
+  sym = M.base_symbol(sym)
   if sym == "" or sym == cur_symbol then return nil end
   return sym
+end
+
+-- C++ keywords a bare <cword> must never resolve as (the "for" dogfood bug: an untagged
+-- function + cursor on a keyword → the card searched the sidecars for `for`).
+M.KEYWORDS = {
+  ["for"] = true, ["if"] = true, ["while"] = true, ["return"] = true, ["switch"] = true,
+  ["case"] = true, ["do"] = true, ["else"] = true, ["break"] = true, ["continue"] = true,
+  ["const"] = true, ["auto"] = true, ["void"] = true, ["int"] = true, ["long"] = true,
+  ["double"] = true, ["float"] = true, ["char"] = true, ["bool"] = true, ["struct"] = true,
+  ["template"] = true, ["inline"] = true, ["static"] = true, ["unsigned"] = true,
+  ["namespace"] = true, ["using"] = true, ["new"] = true, ["delete"] = true,
+  ["sizeof"] = true, ["true"] = true, ["false"] = true, ["nullptr"] = true, ["this"] = true,
+}
+
+-- the ENCLOSING function's name via treesitter (the untagged-function rung — Portfolio_Init
+-- has no [FUNCTION] tag block, and <cword> mid-body is a keyword lottery).
+local function ts_fn_symbol(bufnr, row0)
+  local okp, parser = pcall(vim.treesitter.get_parser, bufnr, "cpp")
+  if not okp or not parser then return nil end
+  local tree = parser:parse()[1]
+  if not tree then return nil end
+  local node = tree:root():named_descendant_for_range(row0, 0, row0, 0)
+  while node do
+    if node:type() == "function_definition" then
+      local decl = node:field("declarator")[1]
+      while decl do
+        local t = decl:type()
+        if t == "identifier" or t == "qualified_identifier" or t == "field_identifier"
+           or t == "operator_name" or t == "destructor_name" then
+          return vim.treesitter.get_node_text(decl, bufnr)
+        end
+        decl = decl:field("declarator")[1] or decl:named_child(0)
+      end
+      return nil
+    end
+    node = node:parent()
+  end
+end
+
+-- the ONE symbol-resolution chain (open + follow share it): tagged FUNCTION block name →
+-- treesitter enclosing function → nil. Returns symbol, blk (blk for the struct guard).
+local function symbol_at(buf, row0)
+  local ok, tc = pcall(require, "fox-symdeps.tagcontext")
+  local blk = ok and tc.enclosing_block(buf, row0) or nil
+  if blk and blk.type == "FUNCTION" then return M.base_symbol(blk.name), blk end
+  local ts = ts_fn_symbol(buf, row0)
+  if ts then return M.base_symbol(ts), blk end
+  return nil, blk
 end
 
 -- ── async assembly ───────────────────────────────────────────────────────────────────────────
@@ -311,10 +358,9 @@ local function maybe_follow()
   if not (S and vim.api.nvim_win_is_valid(S.win)) or S.busy then return end
   local buf = vim.api.nvim_get_current_buf()
   if buf == S.buf or vim.bo[buf].buftype ~= "" then return end
-  local ok, tc = pcall(require, "fox-symdeps.tagcontext")
-  if not ok then return end
   local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
-  local sym = M.follow_target(tc.enclosing_block(buf, row0), S.symbol)
+  local cand = symbol_at(buf, row0)   -- tagged OR treesitter — untagged functions follow too
+  local sym = cand and M.follow_target(cand, S.symbol)
   if sym then resolve_into(sym, buf, vim.api.nvim_get_current_win()) end
 end
 
@@ -515,19 +561,24 @@ function M.open(palette)
   local buf = vim.api.nvim_get_current_buf()
   local srcwin = vim.api.nvim_get_current_win()
   local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
-  local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
+  -- resolution chain: tagged FUNCTION block → treesitter enclosing function → <cword>
+  -- (keyword-guarded — the "for" dogfood bug: untagged fn + mid-body cursor grabbed a keyword)
+  local symbol, blk = symbol_at(buf, row0)
   -- per-FUNCTION view, said honestly (dogfood 2026-08-13: firing inside the FPN_Binary STRUCT
   -- rendered a function that merely TAKES the type — misleading; the guard names the mismatch)
-  if blk and blk.type ~= "FUNCTION" then
+  if not symbol and blk and blk.type ~= "FUNCTION" then
     return require("fox-symdeps.ui").notify_raw(
       ("fox-symdeps · shipped-asm is a per-FUNCTION view; %s is a %s — put the cursor inside a "
        .. "function body (struct layout lives on the HUD / board)"):format(blk.name, blk.type:lower()),
       vim.log.levels.WARN)
   end
-  local raw = (blk and blk.name) or vim.fn.expand("<cword>")
-  local symbol = M.base_symbol(raw)
-  if symbol == "" then
-    return require("fox-symdeps.ui").notify_raw("fox-symdeps · shipped-asm: no symbol at cursor", vim.log.levels.WARN)
+  if not symbol then
+    local cw = vim.fn.expand("<cword>")
+    if cw ~= "" and not M.KEYWORDS[cw] then symbol = M.base_symbol(cw) end
+  end
+  if not symbol or symbol == "" then
+    return require("fox-symdeps.ui").notify_raw(
+      "fox-symdeps · shipped-asm: no function at cursor (and no symbol under it)", vim.log.levels.WARN)
   end
   resolve_into(symbol, buf, srcwin)
 end

@@ -167,17 +167,23 @@ local function set_highlights(p)
   hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#b0a498" })                            -- warm
   hl("FoxSymdepsTreeCount", { fg = p.header or "#d4985a", bold = true })                     -- neo-tree count badge
   hl("FoxSymdepsSelection", { bg = p.selection or "#b5702f", fg = "#1a140e", bold = true })    -- bright peach row bar + dark ink for contrast
-  -- the sync BAND (asm rows): match the editor's own variable-hover look (operator 2026-08-14:
-  -- "the way it shows when you hover over a variable") — LINK to the theme's LSP reference
-  -- group so it inherits exactly that visual (§9's law: derive from what exists, never invent
-  -- a color); p.sync (bg) overrides; the whisper tint is only the no-LSP-theme fallback.
-  if p.sync then
-    hl("FoxSymdepsSyncLine", { bg = p.sync })
-  elseif vim.fn.hlexists("LspReferenceText") == 1 then
-    hl("FoxSymdepsSyncLine", { link = "LspReferenceText" })
-  else
-    hl("FoxSymdepsSyncLine", { bg = "#33261a" })
+  -- the sync BAND (asm rows) — "a 50% opacity wheat" (operator 2026-08-14). Terminal cells
+  -- have no real alpha; the translucency IS a runtime mix: the palette's wheat lerped toward
+  -- the theme ground. Taste dials: p.sync = exact bg override · p.sync_alpha = wheat share
+  -- (0..1, default 0.5) · wheat itself = p.warn (the Linux_Theme WHEAT token, d4b483 in
+  -- FoxML_Classic).
+  local function mix(a, b, t)
+    local function rgb(h) h = h:gsub("#", ""); return tonumber(h:sub(1, 2), 16), tonumber(h:sub(3, 4), 16), tonumber(h:sub(5, 6), 16) end
+    local ar, ag, ab = rgb(a)
+    local br, bg, bb = rgb(b)
+    return ("#%02x%02x%02x"):format(
+      math.floor(ar + (br - ar) * t + 0.5), math.floor(ag + (bg - ag) * t + 0.5), math.floor(ab + (bb - ab) * t + 0.5))
   end
+  local ground = "#1a140e"
+  local okn, nh = pcall(vim.api.nvim_get_hl, 0, { name = "Normal" })
+  if okn and nh and nh.bg then ground = ("#%06x"):format(nh.bg) end
+  local wheat = p.warn or "#d4b483"
+  hl("FoxSymdepsSyncLine", { bg = p.sync or mix(wheat, ground, 1 - (p.sync_alpha or 0.5)) })
   hl("FoxSymdepsWarn", { fg = p.warn or "#d4b483", bold = true })                            -- wheat — caution (▲ straddle)
   hl("FoxSymdepsAlarm", { fg = p.alarm or "#b0603a", bold = true })                          -- terracotta — breaks/danger (not raw red)
   hl("FoxSymdepsOk", { fg = p.ok or "#7aab88" })                                             -- green — clean/ok
