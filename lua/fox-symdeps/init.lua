@@ -167,10 +167,17 @@ local function set_highlights(p)
   hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#b0a498" })                            -- warm
   hl("FoxSymdepsTreeCount", { fg = p.header or "#d4985a", bold = true })                     -- neo-tree count badge
   hl("FoxSymdepsSelection", { bg = p.selection or "#b5702f", fg = "#1a140e", bold = true })    -- bright peach row bar + dark ink for contrast
-  hl("FoxSymdepsSyncLine", { bg = p.sync or "#33261a" })  -- the sync BAND (asm rows): bg-only whisper tint —
-                                                          -- text keeps its painted colors, so a 40-row vectorized
-                                                          -- group reads as a translucent wash, never solid bars
-                                                          -- (operator dogfood 2026-08-14)
+  -- the sync BAND (asm rows): match the editor's own variable-hover look (operator 2026-08-14:
+  -- "the way it shows when you hover over a variable") — LINK to the theme's LSP reference
+  -- group so it inherits exactly that visual (§9's law: derive from what exists, never invent
+  -- a color); p.sync (bg) overrides; the whisper tint is only the no-LSP-theme fallback.
+  if p.sync then
+    hl("FoxSymdepsSyncLine", { bg = p.sync })
+  elseif vim.fn.hlexists("LspReferenceText") == 1 then
+    hl("FoxSymdepsSyncLine", { link = "LspReferenceText" })
+  else
+    hl("FoxSymdepsSyncLine", { bg = "#33261a" })
+  end
   hl("FoxSymdepsWarn", { fg = p.warn or "#d4b483", bold = true })                            -- wheat — caution (▲ straddle)
   hl("FoxSymdepsAlarm", { fg = p.alarm or "#b0603a", bold = true })                          -- terracotta — breaks/danger (not raw red)
   hl("FoxSymdepsOk", { fg = p.ok or "#7aab88" })                                             -- green — clean/ok
