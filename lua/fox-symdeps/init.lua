@@ -167,6 +167,10 @@ local function set_highlights(p)
   hl("FoxSymdepsBadge", { fg = p.badge or p.muted or "#b0a498" })                            -- warm
   hl("FoxSymdepsTreeCount", { fg = p.header or "#d4985a", bold = true })                     -- neo-tree count badge
   hl("FoxSymdepsSelection", { bg = p.selection or "#b5702f", fg = "#1a140e", bold = true })    -- bright peach row bar + dark ink for contrast
+  hl("FoxSymdepsSyncLine", { bg = p.sync or "#33261a" })  -- the sync BAND (asm rows): bg-only whisper tint —
+                                                          -- text keeps its painted colors, so a 40-row vectorized
+                                                          -- group reads as a translucent wash, never solid bars
+                                                          -- (operator dogfood 2026-08-14)
   hl("FoxSymdepsWarn", { fg = p.warn or "#d4b483", bold = true })                            -- wheat — caution (▲ straddle)
   hl("FoxSymdepsAlarm", { fg = p.alarm or "#b0603a", bold = true })                          -- terracotta — breaks/danger (not raw red)
   hl("FoxSymdepsOk", { fg = p.ok or "#7aab88" })                                             -- green — clean/ok

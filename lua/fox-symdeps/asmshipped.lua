@@ -303,9 +303,11 @@ local function show(lines, title, palette, sync)
         pcall(vim.api.nvim_buf_set_extmark, sync.srcbuf, NS_SYNC, srcline - 1, 0,
               { line_hl_group = "FoxSymdepsSelection" })
       end
+      -- asm side = the whisper BAND (bg-only; a vectorized line maps to ~40 rows — a solid bar
+      -- group swallowed the text, operator dogfood): text keeps its painted colors.
       for _, r in ipairs(asmrows or {}) do
         pcall(vim.api.nvim_buf_set_extmark, buf, NS_SYNC, r - 1, 0,
-              { line_hl_group = "FoxSymdepsSelection" })
+              { line_hl_group = "FoxSymdepsSyncLine" })
       end
     end
     aug = vim.api.nvim_create_augroup("FoxSymdepsAsmShipped_" .. buf, { clear = true })
