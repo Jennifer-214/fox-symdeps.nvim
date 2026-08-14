@@ -576,8 +576,12 @@ local function ensure_card(title, invoking_win)
   vim.wo[win].winbar = "%#FoxSymdepsTitle# " .. title .. " %*"
   vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
   S = { win = win, buf = buf, sync = {} }
-  vim.keymap.set("n", "q", close_card, { buffer = buf, nowait = true, desc = "fox-symdeps: close shipped-asm card" })
-  vim.keymap.set("n", "<CR>", jump_to_marker, { buffer = buf, nowait = true, desc = "fox-symdeps: jump to marker file:line" })
+  vim.keymap.set("n", "q", close_card, { buffer = buf, nowait = true, desc = "fox-symdeps: close the card" })
+  vim.keymap.set("n", "<CR>", jump_to_marker,
+                 { buffer = buf, nowait = true,
+                   desc = "fox-symdeps: open — a `· file:line` marker jumps source · a `call` opens the CALLEE · a `→` row opens the CALLER" })
+  vim.keymap.set("n", "?", function() require("fox-symdeps.ui").buffer_help(buf) end,
+                 { buffer = buf, nowait = true, desc = "fox-symdeps: this help (derived from the keys themselves)" })
   vim.keymap.set("n", "r", function()
     if S and S.symbol and not S.busy then
       resolve_into(S.symbol, S.sync.srcbuf, S.sync.srcwin)

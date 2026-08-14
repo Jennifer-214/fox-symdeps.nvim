@@ -110,7 +110,9 @@ function M.open(palette)
       })
       vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
       vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
-                     { buffer = b, nowait = true, desc = "fox-symdeps: close register-fit card" })
+                     { buffer = b, nowait = true, desc = "fox-symdeps: close the card" })
+      vim.keymap.set("n", "?", function() require("fox-symdeps.ui").buffer_help(b) end,
+                     { buffer = b, nowait = true, desc = "fox-symdeps: this help (derived from the keys themselves)" })
     end)
   end)
 end

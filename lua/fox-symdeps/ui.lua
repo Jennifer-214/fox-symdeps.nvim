@@ -74,8 +74,50 @@ function M.output()
   })
   vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
   vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
-                 { buffer = buf, nowait = true, desc = "fox-symdeps: close output log" })
+                 { buffer = buf, nowait = true, desc = "fox-symdeps: close the log" })
+  vim.keymap.set("n", "?", function() M.buffer_help(buf) end,
+                 { buffer = buf, nowait = true, desc = "fox-symdeps: this help (derived from the keys themselves)" })
 end
+
+-- ── `?` help for CARD surfaces (operator 2026-08-14) — DERIVED from the buffer's OWN keymaps:
+-- the `desc` strings the keys register with ARE the SSoT (fleet-K4 applied to buffer-local
+-- keys). A new key self-registers into its card's help; nothing is hand-copied, ever.
+function M._help_lines(maps)
+  local rows = {}
+  for _, m in ipairs(maps or {}) do
+    if m.desc and m.desc:find("fox%-symdeps") then
+      rows[#rows + 1] = { lhs = m.lhs or "?", txt = (m.desc:gsub("^fox%-symdeps:%s*", "")) }
+    end
+  end
+  table.sort(rows, function(a, b) return a.lhs < b.lhs end)
+  local lines = {}
+  for _, r in ipairs(rows) do
+    lines[#lines + 1] = ("  %-6s %s"):format(r.lhs, r.txt)
+  end
+  if #lines == 0 then lines[1] = "  (no keys registered here)" end
+  return lines
+end
+
+function M.buffer_help(buf)
+  local lines = M._help_lines(vim.api.nvim_buf_get_keymap(buf, "n"))
+  local w = 0
+  for _, l in ipairs(lines) do w = math.max(w, vim.fn.strdisplaywidth(l)) end
+  local b = vim.api.nvim_create_buf(false, true)
+  vim.bo[b].bufhidden = "wipe"
+  vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
+  vim.bo[b].modifiable = false
+  local win = vim.api.nvim_open_win(b, true, {
+    relative = "cursor", row = 1, col = 1, width = math.min(w + 2, vim.o.columns - 4),
+    height = #lines, border = "rounded", title = "  keys here ", title_pos = "left",
+  })
+  vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
+  local function close() pcall(vim.api.nvim_win_close, win, true) end
+  vim.keymap.set("n", "q", close, { buffer = b, nowait = true })
+  vim.keymap.set("n", "<Esc>", close, { buffer = b, nowait = true })
+  vim.api.nvim_create_autocmd("WinLeave", { buffer = b, once = true, callback = close })
+end
+
+-- the output-log float gains ? too (self-describing surfaces, everywhere)
 
 -- ONE notification voice (operator polish #4): every plugin notification routes through here —
 -- the `fox-symdeps · ` prefix is applied exactly once (call sites that already carry it keep
