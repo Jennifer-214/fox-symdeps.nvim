@@ -9,6 +9,21 @@ local M = {}
 
 local function pal() return require("fox-symdeps").config.palette end
 
+-- bless flows open in a terminal split that CLOSES ITSELF when the process exits (operator
+-- QOL 2026-08-14: type the confirmation, the window goes away — no manual ctrl-c/:q after).
+local function bless_term(cmd)
+  vim.cmd("botright 20split | terminal " .. cmd)
+  local buf = vim.api.nvim_get_current_buf()
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_create_autocmd("TermClose", {
+    buffer = buf, once = true,
+    callback = function()
+      vim.schedule(function() pcall(vim.api.nvim_win_close, win, true) end)
+    end,
+  })
+  vim.cmd("startinsert")
+end
+
 -- `all = true` → every unit type. Else `types = { ["function"]=true, struct=true, … }` — the
 -- LOWERCASED tag type ("function"/"struct"/"registry"/"file"). ("function" is a keyword → bracket key.)
 M.registry = {
@@ -104,15 +119,9 @@ M.registry = {
   -- runs intact inside the editor — the control is anti-AGENT, not anti-convenience. These
   -- never write anything themselves; the terminal flow does, with the operator confirming.
   { id = "bless-latency", label = "Bless — latency budgets (terminal: diff + typed confirm)", all = true,
-    run = function()
-      vim.cmd("botright 20split | terminal python3 tools/check_latency_path_conformance.py --update-budgets")
-      vim.cmd("startinsert")
-    end },
+    run = function() bless_term("python3 tools/check_latency_path_conformance.py --update-budgets") end },
   { id = "bless-golden", label = "Bless — goldens console (terminal: bless.py --console)", all = true,
-    run = function()
-      vim.cmd("botright 20split | terminal python3 tools/bless.py --console")
-      vim.cmd("startinsert")
-    end },
+    run = function() bless_term("python3 tools/bless.py --console") end },
 }
 
 -- pure: the display label with its derived bind suffix — `bind` (launcher rows carry theirs
