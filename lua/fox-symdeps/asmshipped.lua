@@ -37,9 +37,23 @@ function M.base_symbol(name)
   return (name or ""):match("^([%w_:~]+)") or ""
 end
 
+-- skip a balanced <...> template group starting at index i ('<'); returns the index AFTER it.
+local function skip_angles(s, i)
+  local depth = 0
+  for k = i, #s do
+    local c = s:sub(k, k)
+    if c == "<" then depth = depth + 1
+    elseif c == ">" then depth = depth - 1; if depth == 0 then return k + 1 end end
+  end
+  return nil
+end
+
 -- is this line an objdump DEFINITION block header for `symbol`? Header form (column 1):
--- `hex <demangled>:`. The symbol must sit on identifier boundaries inside <…> (call-site
--- annotations like `call … <Sym+0x10>` are indented operands, not column-1 headers).
+-- `hex <demangled>:`. The symbol must sit in NAME POSITION — identifier boundaries AND
+-- followed (after an optional template arg-list) by its argument-list `(` or end-of-name.
+-- A symbol appearing in a PARAMETER or RETURN type does NOT match (the FPN_Binary dogfood
+-- bug: searching a struct name matched every function taking it as an argument). Call-site
+-- annotations (`call … <Sym+0x10>`) are indented operands, never column-1 headers.
 function M.match_block_header(line, symbol)
   local inner = (line or ""):match("^%x+ <(.+)>:$")
   if not inner or symbol == "" then return false end
@@ -48,8 +62,15 @@ function M.match_block_header(line, symbol)
     local s, e = inner:find(symbol, from, true)
     if not s then return false end
     local before = s == 1 and "" or inner:sub(s - 1, s - 1)
-    local after = inner:sub(e + 1, e + 1)
-    if not before:match("[%w_]") and not after:match("[%w_]") then return true end
+    local j = e + 1
+    if not before:match("[%w_]") and not inner:sub(j, j):match("[%w_]") then
+      if inner:sub(j, j) == "<" then j = skip_angles(inner, j) end
+      if j then
+        while inner:sub(j, j) == " " do j = j + 1 end
+        local c = inner:sub(j, j)
+        if c == "(" or c == "" then return true end
+      end
+    end
     from = e + 1
   end
 end
@@ -197,6 +218,51 @@ end
 -- ── the card ─────────────────────────────────────────────────────────────────────────────────
 
 local NS_SYNC = vim.api.nvim_create_namespace("fox_symdeps_asmshipped_sync")
+local NS_PAINT = vim.api.nvim_create_namespace("fox_symdeps_asmshipped_paint")
+
+-- deterministic painter — theme-linked BUILTIN groups, zero parser deps (dogfood 2026-08-13:
+-- "the asm is missing the text colors"; an asm treesitter/syntax file may or may not exist on
+-- a given setup, and our content isn't pure asm anyway — markers + demangled context lines).
+-- addresses=Number · mnemonics=Statement · %registers=Identifier · $immediates=Constant ·
+-- <call-targets>=Special · `· file:line` markers=Comment (`· from` foreign=DiagnosticHint) ·
+-- demangled context lines=Type · block headers=Function · provenance/⚠=Title/WarningMsg.
+local function paint_lines(buf, lines)
+  local function mark(row, s, e, grp)
+    pcall(vim.api.nvim_buf_set_extmark, buf, NS_PAINT, row - 1, s - 1, { end_col = e, hl_group = grp })
+  end
+  for i, l in ipairs(lines) do
+    if l:find("  · from ", 1, true) == 1 then
+      mark(i, 1, #l, "DiagnosticHint")
+    elseif l:find("  · ", 1, true) == 1 then
+      mark(i, 1, #l, "Comment")
+    elseif l:find("⚠", 1, true) then
+      mark(i, 1, #l, "WarningMsg")
+    elseif l:find("  shipped: ", 1, true) == 1 or l:find("  also in: ", 1, true) == 1
+        or l:find("shipped instruction", 1, true) then
+      mark(i, 1, #l, "Title")
+    elseif l:match("^%x+ <.+>:$") then
+      mark(i, 1, #l, "Function")
+    elseif l:match("^%s+%x+:") then
+      local _, e_addr = l:find("^%s+%x+:")
+      mark(i, 1, e_addr, "Number")
+      local ms, me = l:find("[%a][%w.]*", e_addr + 1)
+      if ms then mark(i, ms, me, "Statement") end
+      local from = (me or e_addr) + 1
+      while true do
+        local rs, re = l:find("%%[%w]+", from)
+        if not rs then break end
+        mark(i, rs, re, "Identifier")
+        from = re + 1
+      end
+      local is_, ie_ = l:find("%$%-?0?x?%x+")
+      if is_ then mark(i, is_, ie_, "Constant") end
+      local ts, te = l:find("<[^>]+>")
+      if ts then mark(i, ts, te, "Special") end
+    elseif l:match("^%S.*:$") then
+      mark(i, 1, #l, "Type")   -- demangled inlined-from context line (`Name():`)
+    end
+  end
+end
 
 -- show the card; when `sync` = { srcbuf, srcwin, by_src, src_of } is given, wire BIDIRECTIONAL
 -- cursor sync (operator ask 2026-08-13: "highlight the lines on both so they both scroll at the
@@ -208,10 +274,13 @@ local function show(lines, title, palette, sync)
   vim.bo[buf].filetype = "asm"
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
+  paint_lines(buf, lines)
   vim.cmd("rightbelow vsplit")
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
   vim.wo[win].number = false
+  vim.wo[win].relativenumber = false   -- the global rnu leaked in (dogfood gutter 16..0..25)
+  vim.wo[win].wrap = false             -- long demangled call targets wrapped into 6-line blocks
   vim.wo[win].winbar = "%#FoxSymdepsTitle# " .. title .. " %*"
   vim.wo[win].winhighlight = "Normal:FoxSymdepsNormal"
 
@@ -283,7 +352,15 @@ function M.open(palette)
   local srcwin = vim.api.nvim_get_current_win()
   local row0 = vim.api.nvim_win_get_cursor(0)[1] - 1
   local blk = require("fox-symdeps.tagcontext").enclosing_block(buf, row0)
-  local raw = (blk and blk.type == "FUNCTION" and blk.name) or vim.fn.expand("<cword>")
+  -- per-FUNCTION view, said honestly (dogfood 2026-08-13: firing inside the FPN_Binary STRUCT
+  -- rendered a function that merely TAKES the type — misleading; the guard names the mismatch)
+  if blk and blk.type ~= "FUNCTION" then
+    return require("fox-symdeps.ui").notify_raw(
+      ("fox-symdeps · shipped-asm is a per-FUNCTION view; %s is a %s — put the cursor inside a "
+       .. "function body (struct layout lives on the HUD / board)"):format(blk.name, blk.type:lower()),
+      vim.log.levels.WARN)
+  end
+  local raw = (blk and blk.name) or vim.fn.expand("<cword>")
   local symbol = M.base_symbol(raw)
   if symbol == "" then
     return require("fox-symdeps.ui").notify_raw("fox-symdeps · shipped-asm: no symbol at cursor", vim.log.levels.WARN)

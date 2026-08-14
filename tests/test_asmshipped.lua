@@ -35,6 +35,20 @@ ok(not A.match_block_header("    call   401000 <Notify_Send(NotifyState&)>", "No
 ok(not A.match_block_header("0000000000404000 <Notify_Sender()>:", "Notify_Send"),
    "identifier-boundary: suffixed symbol rejected")
 
+-- NAME-POSITION rule (the FPN_Binary dogfood bug: a struct name matched functions TAKING it)
+ok(not A.match_block_header(
+     "0000000000405000 <void Regime_ComputeSignals<64u>(RegimeSignals<64u>*, FPN_Binary<64u>)>:",
+     "FPN_Binary"),
+   "PARAMETER-type mention does NOT match (the dogfood bug)")
+ok(not A.match_block_header("0000000000406000 <FPN_Binary<64u> Money_ToBinary(Money)>:", "FPN_Binary"),
+   "RETURN-type mention does not match")
+ok(A.match_block_header("0000000000407000 <main>:", "main"), "plain C symbol at end-of-name matches")
+ok(A.match_block_header("0000000000408000 <OrderManagerState::OrderManagerState()>:", "OrderManagerState"),
+   "constructor: the name-position occurrence matches past the scope-qualifier one")
+ok(A.match_block_header(
+     "0000000000409000 <Money_FromBinary(FPN_Binary<64u>)>:", "Money_FromBinary"),
+   "function taking the type still matches ITS OWN name")
+
 -- slicing: two instantiations → two blocks, bodies intact; unrelated blocks excluded
 local fixture = table.concat({
   "0000000000401000 <void BG_Evaluate<64u>(int)>:",
