@@ -189,6 +189,56 @@ function M.call_target(line)
   return base ~= "" and base or nil
 end
 
+-- pure: is this line an INLINE-CONTEXT line for `symbol`? (`void Position_Reset<64u>(...):` —
+-- the demangled-signature shape of a block header WITHOUT the address; objdump -l emits one
+-- above instructions inlined FROM that function.) Reuses the name-position rule by
+-- synthesizing a header around it — one matcher, never two boundary implementations.
+function M.is_inline_ctx(line, symbol)
+  if not line or line:match("^%s") or line:match("^%x+ <") or not line:match(":$") then return false end
+  return M.match_block_header("0 <" .. line:sub(1, -2) .. ">:", symbol)
+end
+
+-- pure: the caller's base symbol from a block-header line (for retargeting).
+function M.header_base(blk_line)
+  local inner = (blk_line or ""):match("^%x+ <(.+)>:$")
+  if not inner then return nil end
+  inner = inner:gsub("%s*%[clone[^%]]*%]", "")
+  local head = inner
+  local p = inner:find("(", 1, true)
+  if p then head = inner:sub(1, p - 1) end
+  local name = head:match("(%S+)%s*$") or head
+  local base = M.base_symbol(name)
+  return base ~= "" and base or nil
+end
+
+-- pure: the awk emissions (`sidecar\tblock-header\tctx-line` per hit) → per-binary caller
+-- aggregation { [binary] = { {caller, count}, … } } (callers sorted by count desc), validated
+-- through is_inline_ctx (the awk filter is coarse fixed-string; the boundary rule decides).
+function M.attrib_aggregate(emit_lines, symbol)
+  local agg = {}
+  for _, l in ipairs(emit_lines) do
+    local path, blk, ctx = l:match("^(.-)\t(.-)\t(.*)$")
+    if path and M.is_inline_ctx(ctx, symbol) then
+      local caller = M.header_base(blk)
+      if caller and caller ~= symbol then
+        local binary = path:match("([^/]+)%.asm$") or path
+        local dir = path:match("([^/]+)/asm/[^/]+$")
+        local key = (dir and (dir .. "/") or "") .. binary
+        agg[key] = agg[key] or {}
+        agg[key][caller] = (agg[key][caller] or 0) + 1
+      end
+    end
+  end
+  local out = {}
+  for binary, callers in pairs(agg) do
+    local list = {}
+    for c, n in pairs(callers) do list[#list + 1] = { caller = c, count = n } end
+    table.sort(list, function(a, b) return a.count > b.count or (a.count == b.count and a.caller < b.caller) end)
+    out[binary] = list
+  end
+  return out
+end
+
 -- the BUDGET chip (§12 rung 3, operator ask: "within instruction budget"): the blessed ratchet
 -- (tools/lib/latency_path_budgets.json) vs the SHIPPED count. Different BASES by construction —
 -- the ratchet measures a per-TU probe, the card counts the LINKED block (inlining differs) —
@@ -327,6 +377,40 @@ local function load_budgets(root)
   return (ok and type(d) == "table") and d or {}
 end
 
+-- inline ATTRIBUTION (the --inlines rung, sidecar-format-free): ONE awk pass over every
+-- sidecar emits `path\tblock-header\tctx-line` for coarse fixed-string hits; the Lua boundary
+-- rule (is_inline_ctx) decides. cb(M.attrib_aggregate result).
+local function attribution(cars, symbol, cb)
+  local argv = { "awk", "-v", "sym=" .. symbol,
+    '/^[0-9a-f]+ </{blk=$0} index($0,sym)&&$0!~/^ /&&$0!~/^[0-9a-f]+ </&&$0~/:$/{print FILENAME"\t"blk"\t"$0}' }
+  for _, c in ipairs(cars) do argv[#argv + 1] = c.path end
+  vim.system(argv, { text = true }, function(res)
+    local lines = {}
+    for l in (res.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = l end
+    vim.schedule(function() cb(M.attrib_aggregate(lines, symbol)) end)
+  end)
+end
+
+-- attribution → display lines + the <CR>-retarget map (rows → caller symbol)
+local function attrib_section(agg, offset)
+  local lines, retarget = {}, {}
+  local names = vim.tbl_keys(agg)
+  table.sort(names)
+  if #names == 0 then
+    lines[1] = "  (no inline attributions found in the sidecars)"
+    return lines, retarget
+  end
+  lines[#lines + 1] = "  INLINED INTO (⏎ on a caller opens its card · b returns):"
+  for _, binary in ipairs(names) do
+    lines[#lines + 1] = "  " .. binary .. ":"
+    for _, e in ipairs(agg[binary]) do
+      lines[#lines + 1] = ("    → %s  (%d inlined region%s)"):format(e.caller, e.count, e.count == 1 and "" or "s")
+      retarget[offset + #lines] = e.caller
+    end
+  end
+  return lines, retarget
+end
+
 -- freshness: recorded sha16 vs the binary's current sha16. cb("fresh"|"stale"|"binary-missing", now16)
 local function freshness(prov, root, cb)
   local bin = prov.binary
@@ -359,8 +443,10 @@ local function paint_lines(buf, lines)
     elseif l:find("⚠", 1, true) then
       mark(i, 1, #l, "WarningMsg")
     elseif l:find("  shipped: ", 1, true) == 1 or l:find("  also in: ", 1, true) == 1
-        or l:find("shipped instruction", 1, true) then
+        or l:find("shipped instruction", 1, true) or l:find("INLINED INTO", 1, true) then
       mark(i, 1, #l, "Title")
+    elseif l:find("    → ", 1, true) == 1 then
+      mark(i, 1, #l, "Function")   -- retargetable caller rows (⏎ opens)
     elseif l:match("^%x+ <.+>:$") then
       mark(i, 1, #l, "Function")
     elseif l:match("^%s+%x+:") then
@@ -430,6 +516,13 @@ end
 local function jump_to_marker()
   if not S then return end
   local row = vim.api.nvim_win_get_cursor(S.win)[1]
+  -- caller-retarget rows (the INLINED-INTO views) take precedence
+  local rt = S.sync.retarget and S.sync.retarget[row]
+  if rt and not S.busy then
+    S.stack = S.stack or {}
+    S.stack[#S.stack + 1] = S.symbol
+    return resolve_into(rt, S.sync.srcbuf, S.sync.srcwin)
+  end
   local j = S.sync.jump and S.sync.jump[row]
   if not j then
     -- not a marker row: a `call` instruction retargets the card to the CALLEE (the shipped
@@ -495,6 +588,26 @@ local function ensure_card(title, invoking_win)
       resolve_into(table.remove(S.stack), S.sync.srcbuf, S.sync.srcwin)
     end
   end, { buffer = buf, nowait = true, desc = "fox-symdeps: back (call-follow stack)" })
+  vim.keymap.set("n", "I", function()
+    -- where ELSE is this function inlined, besides its standalone copies? (a function can be
+    -- BOTH — standalone in one binary, melted into callers in another)
+    if not (S and S.symbol) or S.busy then return end
+    local root = root_of(vim.api.nvim_buf_get_name(S.sync.srcbuf or 0))
+    local cars = sidecars(root)
+    if #cars == 0 then return end
+    S.busy = true
+    local sym = S.symbol
+    attribution(cars, sym, function(agg)
+      local lines = { ("  %s — inline attribution across the sidecars"):format(sym), "" }
+      local sec, retarget = attrib_section(agg, #lines)
+      vim.list_extend(lines, sec)
+      S.stack = S.stack or {}
+      S.stack[#S.stack + 1] = sym
+      render(lines, "asm · INLINED-INTO · " .. sym,
+             { srcbuf = S.sync.srcbuf, srcwin = S.sync.srcwin, retarget = retarget }, S.sync.srcwin)
+      S.symbol, S.busy = sym, false
+    end)
+  end, { buffer = buf, nowait = true, desc = "fox-symdeps: inline attribution (where else is this inlined)" })
   S.aug = vim.api.nvim_create_augroup("FoxSymdepsAsmShipped", { clear = true })
   vim.api.nvim_create_autocmd("CursorMoved", {   -- source → asm sync (global; srcbuf changes on follow)
     group = S.aug,
@@ -566,20 +679,24 @@ resolve_into = function(symbol, srcbuf, srcwin)
       callsum = callsum + (calls[c.path] or 0)
     end
     if not pick then
-      local searched = {}
-      for _, c in ipairs(cars) do searched[#searched + 1] = c.prov.binary end
-      local lines = {
-        ("  %s — NO standalone copy in any shipped binary"):format(symbol),
-        ("  inlined at every call site — a FACT about the shipped code, not a failure"),
-        ("  (%d sidecar%s searched: %s)"):format(#cars, #cars == 1 and "" or "s", table.concat(searched, " · ")),
-      }
-      if callsum > 0 then
-        lines[#lines + 1] = ("  referenced %d time%s across the sidecars (call-site annotations)")
-                            :format(callsum, callsum == 1 and "" or "s")
-      end
-      render(lines, "asm · SHIPPED 1:1 · " .. symbol .. " · INLINED-AWAY",
-             { srcbuf = srcbuf, srcwin = srcwin }, srcwin)
-      S.symbol, S.busy = symbol, false
+      -- the FULL inlined-away answer (the --inlines rung): not just "melted" — WHERE it went,
+      -- navigable (⏎ on a caller opens its card, with the `· from` markers showing this
+      -- function's lines inside it)
+      attribution(cars, symbol, function(agg)
+        local searched = {}
+        for _, c in ipairs(cars) do searched[#searched + 1] = c.prov.binary end
+        local lines = {
+          ("  %s — NO standalone copy in any shipped binary"):format(symbol),
+          ("  inlined at every call site — a FACT about the shipped code, not a failure"),
+          ("  (%d sidecar%s searched · %d call-site refs)"):format(#cars, #cars == 1 and "" or "s", callsum),
+          "",
+        }
+        local sec, retarget = attrib_section(agg, #lines)
+        vim.list_extend(lines, sec)
+        render(lines, "asm · SHIPPED 1:1 · " .. symbol .. " · INLINED-AWAY",
+               { srcbuf = srcbuf, srcwin = srcwin, retarget = retarget }, srcwin)
+        S.symbol, S.busy = symbol, false
+      end)
       return
     end
     freshness(pick.prov, root, function(verdict, now16)

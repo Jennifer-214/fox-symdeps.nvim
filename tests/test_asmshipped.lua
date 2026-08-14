@@ -149,6 +149,29 @@ local bm = A.branch_marks(bm_fix)
 ok(bm.n_data == 1 and bm.rows[1] == 4, "memory-compare jcc classified data-dep, mapped to the DISPLAY row")
 ok(A.branch_marks({ "  · X.hpp:1", "   1:\tret" }).n_data == 0, "no branches → zero, never noise")
 
+-- inline attribution (the --inlines rung, sidecar-format-free)
+ok(A.is_inline_ctx("void Position_Reset<64u>(Position<64u>*):", "Position_Reset"),
+   "inline-context line matches (the demangled shape sans address)")
+ok(not A.is_inline_ctx("void Regime_ComputeSignals<64u>(FPN_Binary<64u>):", "FPN_Binary"),
+   "param-position mention in a context line rejected (same name-position rule)")
+ok(not A.is_inline_ctx("   53c00:\tvpxor  %xmm1,%xmm1,%xmm1", "Position_Reset"), "indented rows rejected")
+ok(not A.is_inline_ctx("0000000000401000 <void Position_Reset<64u>(Position<64u>*)>:", "Position_Reset"),
+   "a real block header is NOT a context line")
+ok(A.header_base("0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:") == "Portfolio_Init",
+   "header_base extracts the caller's base symbol")
+ok(A.header_base("00000000000009a2c <main::{lambda(int)#1}::operator()(int) const [clone .isra.0]>:") ~= nil,
+   "clone-suffixed headers still yield a base (never crash)")
+local emits = {
+  "build/asm/engine.asm\t0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:\tvoid Position_Reset<64u>(Position<64u>*):",
+  "build/asm/engine.asm\t0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:\tvoid Position_Reset<64u>(Position<64u>*):",
+  "build/asm/engine.asm\t0000000000060000 <void Clear_All<64u>()>:\tvoid Position_Reset<64u>(Position<64u>*):",
+  "build_gui/asm/foxml_suite.asm\t0000000000070000 <void Other<64u>(Position_Reset_t)>:\tvoid F(Position_Reset_t x):",
+}
+local agg = A.attrib_aggregate(emits, "Position_Reset")
+ok(agg["build/engine"] and #agg["build/engine"] == 2 and agg["build/engine"][1].caller == "Portfolio_Init"
+   and agg["build/engine"][1].count == 2, "aggregation: same caller counts up, sorted desc, binary-keyed")
+ok(agg["build_gui/foxml_suite"] == nil, "param-position context filtered out of the aggregate")
+
 -- sweep order: newest recorded binary first (recency-as-rule)
 local cars = A.sweep_order({
   { path = "a", prov = { mtime = 100 } },
