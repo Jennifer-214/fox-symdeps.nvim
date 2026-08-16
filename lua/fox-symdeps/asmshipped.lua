@@ -199,13 +199,42 @@ function M.is_inline_ctx(line, symbol)
 end
 
 -- pure: the caller's base symbol from a block-header line (for retargeting).
+--
+-- Both boundaries here are ANGLE-DEPTH-AWARE, and neither used to be. A demangled name is
+-- `<return> <name><template-args>(<params>)`, and template argument lists contain BOTH spaces
+-- and parens — so splitting on either without tracking `<>` depth returns a template ARGUMENT
+-- where a function name belongs. The observed failure (2026-08-16): every multi-arg
+-- instantiation attributed to its last template argument, so the INLINED-INTO list read
+-- `→ true` / `→ false` / `→ 512u` instead of caller names, and `<CR>` retargeted the card to
+-- the non-symbol `true` — which is why the one navigable route into an INLINED-AWAY function's
+-- shipped asm did nothing. Single-argument forms (`Portfolio_Init<64u>`) came out right by
+-- ACCIDENT (no space to split on, and base_symbol then stripped the angles), which is exactly
+-- why the existing test passed while the feature was broken in the field.
 function M.header_base(blk_line)
   local inner = (blk_line or ""):match("^%x+ <(.+)>:$")
   if not inner then return nil end
   inner = inner:gsub("%s*%[clone[^%]]*%]", "")
-  local head = inner
-  local p = inner:find("(", 1, true)
-  if p then head = inner:sub(1, p - 1) end
+  -- the ARGUMENT-LIST '(' is the first one at template depth 0; a '(' inside a template
+  -- argument (function-pointer params, lambda types) is not it.
+  local head, depth = inner, 0
+  for k = 1, #inner do
+    local c = inner:sub(k, k)
+    if c == "<" then depth = depth + 1
+    elseif c == ">" then depth = depth - 1
+    elseif c == "(" and depth == 0 then head = inner:sub(1, k - 1); break end
+  end
+  -- drop EVERY balanced <...> group before the whitespace split — a template group is never
+  -- part of a name, and it is not always TRAILING: a qualified member of a template class
+  -- carries its group in the MIDDLE (`basic_string<…>::_M_create`), which a trailing-only
+  -- strip leaves unresolvable (589 STL headers in the 31k-header sidecar corpus).
+  local kept, d = {}, 0
+  for k = 1, #head do
+    local c = head:sub(k, k)
+    if c == "<" then d = d + 1
+    elseif c == ">" then d = d - 1
+    elseif d == 0 then kept[#kept + 1] = c end
+  end
+  head = table.concat(kept):gsub("%s+$", "")
   local name = head:match("(%S+)%s*$") or head
   local base = M.base_symbol(name)
   return base ~= "" and base or nil

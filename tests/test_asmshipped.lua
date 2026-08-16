@@ -161,6 +161,26 @@ ok(A.header_base("0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:"
    "header_base extracts the caller's base symbol")
 ok(A.header_base("00000000000009a2c <main::{lambda(int)#1}::operator()(int) const [clone .isra.0]>:") ~= nil,
    "clone-suffixed headers still yield a base (never crash)")
+-- MULTI-ARG template teeth (2026-08-16). Each of these returned the last template ARGUMENT
+-- before the angle-depth fix — the live `→ true` / `→ false` / `→ 512u` attribution bug that
+-- made <CR> retarget the card to a non-symbol and left INLINED-AWAY functions unreachable.
+-- The single-arg case above passed throughout, which is why the suite stayed green.
+ok(A.header_base("0000000000053c00 <void EventLoop_RebuildOneCore<64, true>(EventLoopState<64>*)>:")
+   == "EventLoop_RebuildOneCore", "multi-arg template: name, not the trailing `true`")
+ok(A.header_base("0000000000053c00 <void ExecutionCore_Tick<64, false>(ExecutionCore<64>*)>:")
+   == "ExecutionCore_Tick", "multi-arg template: name, not the trailing `false`")
+ok(A.header_base("0000000000053c00 <void RollingStats_Push<64, 512u>(RollingStats<64, 512u>*)>:")
+   == "RollingStats_Push", "multi-arg template: name, not the trailing `512u`")
+ok(A.header_base("0000000000053c00 <void Outer<Inner<1, 2>, true>(X*)>:") == "Outer",
+   "NESTED multi-arg template: the backward scan is depth-balanced, not first-`<`")
+ok(A.header_base("0000000000053c00 <void Takes_Fnptr<64, void (*)(int, int)>(X*)>:") == "Takes_Fnptr",
+   "a '(' INSIDE the template args is not the argument-list paren (depth-0 rule)")
+-- the template group is not always TRAILING: a qualified member of a template class carries it
+-- mid-name, and a trailing-only strip returned nil for all 589 such headers in the real corpus.
+ok(A.header_base("00000000000085d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_create(unsigned long, unsigned long)>:")
+   == "std::__cxx11::basic_string::_M_create", "MID-NAME template group stripped (qualified member of a template class)")
+ok(A.header_base("0000000000008dea <std::vector<std::thread, std::allocator<std::thread> >::~vector()>:")
+   == "std::vector::~vector", "mid-name group + destructor: `::` and `~` survive")
 local emits = {
   "build/asm/engine.asm\t0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:\tvoid Position_Reset<64u>(Position<64u>*):",
   "build/asm/engine.asm\t0000000000053c00 <void Portfolio_Init<64u>(Portfolio<64u>*)>:\tvoid Position_Reset<64u>(Position<64u>*):",
