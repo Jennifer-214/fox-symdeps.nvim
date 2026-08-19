@@ -100,7 +100,7 @@ M.registry = {
     run = function() require("fox-symdeps.asmexplorer").open(pal()) end },
   { id = "asm-shipped", label = "SHIPPED asm — this function in the ACTUAL binary (1:1 sidecar)", types = { ["function"] = true },
     run = function() require("fox-symdeps.asmshipped").open(pal()) end },
-  { id = "branch-tags", label = "Branch tags (data-dependent ▲)", types = { ["function"] = true },
+  { id = "branch-tags", label = "Branch tags (data-dependent ▲, shipped asm)", types = { ["function"] = true },
     run = function() require("fox-symdeps.branchtag").toggle() end },
   -- struct
   { id = "diagnostics", label = "Cache-straddle diagnostics", types = { struct = true },
