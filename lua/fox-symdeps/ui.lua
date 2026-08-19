@@ -38,6 +38,16 @@ function M.pin_width(cols)
   return math.max(60, math.floor((cols or vim.o.columns) * 0.42))
 end
 
+-- fuzzy-picker float: prompt row stacked on a result list, upper-third, content-driven width
+-- CLAMPED (S1 law — a row must never wrap out of the row count). Returns w, h, row, col.
+function M.fzf_dims(cols, lines, want_w)
+  cols, lines = cols or vim.o.columns, lines or vim.o.lines
+  local w = math.min(math.max(want_w or 64, 48), cols - 8)
+  local h = math.min(18, math.max(6, lines - 10))
+  local row = math.max(1, math.floor(lines * 0.16))
+  return w, h, row, math.max(0, math.floor((cols - w) / 2))
+end
+
 -- ── the plugin's OWN output log (operator 2026-08-14: "outputs shouldn't need :Noice") ──────
 -- Every notify_raw ALSO lands in this ring; <leader>dn / the menu row opens the float —
 -- newest first (recency-as-rule §11(iii)), level-iconed, persistent until q. The toast stays
@@ -118,6 +128,165 @@ function M.buffer_help(buf)
 end
 
 -- the output-log float gains ? too (self-describing surfaces, everywhere)
+
+-- ── fuzzy_pick — the fzf-style live picker (operator 2026-08-18: "the things that pull up a
+-- search bar for browsing tags and vocab … would be better used as like a fzf pop up"). ONE
+-- surface: a prompt line stacked on a live-narrowing result list — type = filter,
+-- <CR> = pick the selected row, <C-n>/<C-p>/<Down>/<Up>/<Tab> = move, <Esc> = cancel.
+-- Matching is vim.fn.matchfuzzypos (nvim built-in) — zero new dependencies, so the pickers
+-- stop riding whatever happens to back vim.ui.select. Two modes:
+--   static — opts.items filtered locally (structs / tags / vocab);
+--   live   — opts.live(query, update) re-queries a source per keystroke, debounced (roam:
+--            clangd does the matching server-side; the list shows what it returned).
+
+-- pure: (items, query, format) → { {item, text, pos={cols}}, … }. Empty query = every item in
+-- original order; otherwise matchfuzzypos order (score-desc) with matched-char positions.
+function M._fuzzy_filter(items, query, format)
+  format = format or function(it)
+    return type(it) == "table" and (it.label or it.name or "?") or tostring(it)
+  end
+  local rows = {}
+  for i, it in ipairs(items or {}) do rows[#rows + 1] = { text = format(it), i = i } end
+  if not query or query == "" then
+    local out = {}
+    for _, r in ipairs(rows) do out[#out + 1] = { item = items[r.i], text = r.text, pos = {} } end
+    return out
+  end
+  local ok, res = pcall(vim.fn.matchfuzzypos, rows, query, { key = "text" })
+  if not ok or type(res) ~= "table" or not res[1] then return {} end
+  local out = {}
+  for k, r in ipairs(res[1]) do
+    out[#out + 1] = { item = items[r.i], text = r.text, pos = res[2] and res[2][k] or {} }
+  end
+  return out
+end
+
+-- fuzzy_pick(opts): opts = { title?, items? | live(query, update)?, format(item)→string?,
+-- on_choice(item|nil), palette?, hint? }. on_choice(nil) = cancelled.
+function M.fuzzy_pick(opts)
+  opts = opts or {}
+  pcall(vim.api.nvim_set_hl, 0, "FoxSymdepsFzfMatch", { default = true, link = "Special" })
+  pcall(vim.api.nvim_set_hl, 0, "FoxSymdepsDim", { default = true, link = "Comment" })
+  local NSF = vim.api.nvim_create_namespace("fox_symdeps_fuzzy")
+  local prev_win = vim.api.nvim_get_current_win()
+  local items = opts.items or {}
+  local rows = M._fuzzy_filter(items, "", opts.format)
+
+  local want = (opts.title and #opts.title + 12) or 48
+  for _, r in ipairs(rows) do want = math.max(want, vim.fn.strdisplaywidth(r.text) + 4) end
+  local w, h, row, col = M.fzf_dims(nil, nil, want)
+
+  local rbuf = vim.api.nvim_create_buf(false, true); vim.bo[rbuf].bufhidden = "wipe"
+  local pbuf = vim.api.nvim_create_buf(false, true); vim.bo[pbuf].bufhidden = "wipe"
+  vim.bo[pbuf].buftype = "prompt"
+  vim.fn.prompt_setprompt(pbuf, "  ")
+  -- LAYER-STACK marker (operator rule 2026-08-10): an open HUD/board stays alive under its picker.
+  vim.b[pbuf].fox_symdeps_menu = true
+  vim.b[rbuf].fox_symdeps_menu = true
+
+  local border_hl = ""
+  if opts.palette and opts.palette.border then
+    pcall(vim.api.nvim_set_hl, 0, "FoxSymdepsFzfBorder", { fg = opts.palette.border })
+    border_hl = ",FloatBorder:FoxSymdepsFzfBorder,FloatTitle:FoxSymdepsFzfBorder"
+  end
+  local rwin = vim.api.nvim_open_win(rbuf, false, {
+    relative = "editor", row = row + 3, col = col, width = w, height = h,
+    style = "minimal", border = "rounded",
+  })
+  vim.wo[rwin].wrap = false
+  vim.wo[rwin].cursorline = true
+  vim.wo[rwin].cursorlineopt = "line"
+  vim.wo[rwin].winhighlight = "CursorLine:FoxSymdepsSelection" .. border_hl
+  local pwin = vim.api.nvim_open_win(pbuf, true, {
+    relative = "editor", row = row, col = col, width = w, height = 1,
+    style = "minimal", border = "rounded",
+    title = opts.title and (" " .. opts.title .. " ") or nil,
+    title_pos = opts.title and "center" or nil,
+  })
+  vim.wo[pwin].winhighlight = "Normal:FoxSymdepsNormal" .. border_hl
+
+  local sel, closed, gen = 1, false, 0
+  local function render()
+    local lines, n = {}, math.min(#rows, 500)
+    for k = 1, n do lines[k] = "  " .. rows[k].text end
+    if #rows == 0 then lines[1] = "  " .. (opts.hint or "(no matches)") end
+    vim.bo[rbuf].modifiable = true
+    vim.api.nvim_buf_set_lines(rbuf, 0, -1, false, lines)
+    vim.bo[rbuf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(rbuf, NSF, 0, -1)
+    for k = 1, n do
+      for _, p in ipairs(rows[k].pos or {}) do
+        pcall(vim.api.nvim_buf_set_extmark, rbuf, NSF, k - 1, p + 2,
+          { end_col = p + 3, hl_group = "FoxSymdepsFzfMatch" })
+      end
+    end
+    if #rows == 0 then
+      pcall(vim.api.nvim_buf_set_extmark, rbuf, NSF, 0, 0,
+        { end_col = #lines[1], hl_group = "FoxSymdepsDim" })
+    end
+    sel = math.min(math.max(sel, 1), math.max(#rows, 1))
+    pcall(vim.api.nvim_win_set_cursor, rwin, { math.min(sel, math.max(#rows, 1)), 0 })
+    pcall(vim.api.nvim_win_set_config, pwin,
+      { title = (" %s · %d "):format(opts.title or "pick", #rows), title_pos = "center" })
+  end
+
+  local function query_text()
+    local l = vim.api.nvim_buf_get_lines(pbuf, 0, -1, false)[1] or ""
+    return l:sub(#vim.fn.prompt_getprompt(pbuf) + 1)
+  end
+  local function refilter()
+    if closed then return end
+    local q = query_text()
+    if opts.live then
+      gen = gen + 1
+      local g = gen
+      vim.defer_fn(function()
+        if closed or g ~= gen then return end
+        opts.live(q, function(new_items)
+          if closed or g ~= gen then return end
+          items = new_items or {}
+          rows = M._fuzzy_filter(items, "", opts.format) -- the live source already matched
+          sel = 1
+          render()
+        end)
+      end, 120)
+    else
+      rows = M._fuzzy_filter(items, q, opts.format)
+      sel = 1
+      render()
+    end
+  end
+  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, { buffer = pbuf, callback = refilter })
+
+  local function close(choice)
+    if closed then return end
+    closed = true
+    pcall(vim.api.nvim_win_close, pwin, true)
+    pcall(vim.api.nvim_win_close, rwin, true)
+    vim.cmd("stopinsert")
+    pcall(vim.api.nvim_set_current_win, prev_win)
+    if opts.on_choice then vim.schedule(function() opts.on_choice(choice) end) end
+  end
+  local function confirm() close(rows[sel] and rows[sel].item or nil) end
+  vim.fn.prompt_setcallback(pbuf, confirm) -- <CR> in a prompt buffer fires this
+  local function move(d)
+    if #rows == 0 then return end
+    sel = ((sel - 1 + d) % #rows) + 1
+    pcall(vim.api.nvim_win_set_cursor, rwin, { sel, 0 })
+  end
+  for lhs, d in pairs({ ["<C-n>"] = 1, ["<Down>"] = 1, ["<Tab>"] = 1,
+                        ["<C-p>"] = -1, ["<Up>"] = -1, ["<S-Tab>"] = -1 }) do
+    vim.keymap.set("i", lhs, function() move(d) end, { buffer = pbuf, nowait = true })
+  end
+  vim.keymap.set("i", "<Esc>", function() close(nil) end, { buffer = pbuf, nowait = true })
+  for _, k in ipairs({ "q", "<Esc>" }) do
+    vim.keymap.set("n", k, function() close(nil) end, { buffer = pbuf, nowait = true })
+  end
+  vim.api.nvim_create_autocmd("WinLeave", { buffer = pbuf, once = true, callback = function() close(nil) end })
+  render()
+  vim.cmd("startinsert!")
+  if opts.live then refilter() end -- fire the initial (empty) live query → hint state
+end
 
 -- ONE notification voice (operator polish #4): every plugin notification routes through here —
 -- the `fox-symdeps · ` prefix is applied exactly once (call sites that already carry it keep
