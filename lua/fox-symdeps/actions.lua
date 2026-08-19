@@ -18,7 +18,10 @@ local function bless_term(cmd)
   vim.api.nvim_create_autocmd("TermClose", {
     buffer = buf, once = true,
     callback = function()
-      vim.schedule(function() pcall(vim.api.nvim_win_close, win, true) end)
+      vim.schedule(function()
+        pcall(vim.api.nvim_win_close, win, true)
+        vim.cmd("silent! checktime") -- the flow may have written files on DISK — re-sync open buffers
+      end)
     end,
   })
   vim.cmd("startinsert")
@@ -122,6 +125,13 @@ M.registry = {
     run = function() bless_term("python3 tools/check_latency_path_conformance.py --update-budgets") end },
   { id = "bless-golden", label = "Bless — goldens console (terminal: bless.py --console)", all = true,
     run = function() bless_term("python3 tools/bless.py --console") end },
+  -- the D-372 loop ("invoke the producers to REFRESH DERIVED in place"), layout axis: the
+  -- cache-gate's own writer, corpus-wide, in an in-editor terminal (output visible; buffers
+  -- re-sync at TermClose). Batch tool, no confirm gate — it writes the [DERIVED] layout
+  -- quartet (SIZE/ALIGN/CACHE_LINES/STRADDLE) as tag-comments, idempotent.
+  { id = "layout-refresh", label = "Refresh [DERIVED] layout facts — cache-gate --fix (terminal)", all = true,
+    writes = "comments",
+    run = function() bless_term("python3 tools/check_cache_layout.py --fix") end },
 }
 
 -- pure: the display label with its derived bind suffix — `bind` (launcher rows carry theirs
