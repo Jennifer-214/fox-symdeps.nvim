@@ -107,8 +107,11 @@ hand-copy it (it had drifted twice before that rule).
 
 ### Config
 
-`opts.palette` (theme tokens — see Install above) and `opts.template_args` (canonical
-instantiations for template units, so size/asm probes resolve `Foo<N>`) — both optional.
+All optional: `opts.key` (the HUD trigger, default `<leader>dd`) · `opts.palette` (theme
+tokens — see Install above) · `opts.template_args` (canonical args for dependent template
+params, so size/asm probes resolve `Foo<N>`) · `opts.ambient_pos` (`"right_align"` default —
+clear of git-blame eol text — or `"eol"`) · `opts.pack_dirs` (extra lens-pack directories;
+`:FoxSymdepsReload` hot-reloads them all).
 
 ## Health
 
@@ -116,8 +119,12 @@ instantiations for template units, so size/asm probes resolve `Foo<N>`) — both
 :checkhealth fox-symdeps
 ```
 
-Checks `clangd` on `PATH`, a client attached, a reachable `compile_commands.json`, the doc-viewer
-resolver chain, and the optional which-key / neo-tree integrations.
+Checks `clangd` on `PATH` + a client attached, a reachable `compile_commands.json`, `rg` and the
+cpp treesitter parser (the analyses that degrade without them are named), the foxtag binary +
+its derived node model (including staleness — a stale binary emits a valid-looking envelope),
+registered lenses, the doc-viewer resolver chain (`python3` + `citable_ids` reachability), the
+shipped-asm sidecars (`./build.sh asm`), toolio payload-kind parity (a producer with no plugin
+surface is named, never silent), and the optional which-key / neo-tree integrations.
 
 ## Testing
 
