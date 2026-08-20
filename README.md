@@ -24,6 +24,9 @@ For the unit at the cursor — anywhere inside it, not only on its name (tag-blo
 - **Called by** + **→ Calls** + transitive **Call trace** (real call hierarchy, not textual mentions).
 - **SHIPPED asm** — the function in the ACTUAL linked binary (1:1 objdump sidecar, never a re-compile):
   instruction/SIMD/budget chips, ▲ branch-class marks, inline attribution, call-follow, source↔asm sync.
+- **Source ↔ ASM explorer** — a 1:1, cursor-synced editor-flags view; **flag-diff** compiles a
+  function under two flag-sets side by side ("does `-O3`/`-mavx2` change the codegen?"),
+  honestly labeled as editor-flags where the shipped card is the binary's truth.
 - **Branch tags** (source overlay, shipped basis) — per line: `▲ data-dependent branch` ·
   `△ branch (reg/loop)` · `✓ branchless (cmov)` · the feeding LOAD flagged on its own line; per
   function: a green/red/dim verdict that never greens on nothing.
@@ -31,6 +34,17 @@ For the unit at the cursor — anywhere inside it, not only on its name (tag-blo
 
 **Docs** — the curated `◆ Docs` section lists the `[REFERENCE]` ids that govern the unit; the
 doc viewer floats the defining doc beside the code (pin it with `p`).
+
+**On-demand analyses** (menu rows, context-gated): **who-writes** (mutation sites for a field) ·
+**false-sharing scan** (disjoint writers on shared 64 B lines) · **change-impact** (what a size
+change breaks downstream, loud vs silent) · **break-check** · **width-literal scan** ·
+**per-function cache-line density** (distinct 64 B lines each function touches).
+
+**Always-on, no float** — the size **chip** (winbar toggle, or pull `status()` into
+lualine/heirline) · the **ambient lens** (the struct under your cursor gets a soft inline
+size + cache-fit tag; honest `<T>` chip on templates) · **straddle diagnostics** (findings as
+real `vim.diagnostic`s — gutter + inline, populated one-step from the unit at the cursor) ·
+the **use-lens** (role tags projected onto the source, `]u`/`[u` hop).
 
 ## Surfaces
 
@@ -47,6 +61,11 @@ One fetch engine, several presentations — all reachable from **the root menu**
 - **Pickers** — browse structs, browse units by `[TAG]`, roam any workspace symbol, TAG ADD from
   the vocab: one fuzzy popup, **browse-first** (j/k immediately, typing is the optional filter).
 - **Dashboard** — whole-project risks; **Output log** — every notification, newest first (`<leader>dn`).
+- **Write & maintain** (all ✎/⚠-tiered in the menu): preview or **write `[DERIVED]` call-graph
+  facts** in place (`:FoxSymdepsDerived` / `!`) · **refresh the layout quartet** corpus-wide
+  (the cache-gate's `--fix`, in an in-editor terminal) · **bless flows** (latency budgets,
+  goldens) in a real pty so the typed-confirm control runs intact · **lock layout** — insert a
+  `static_assert(sizeof/alignof)`, the one sanctioned source-writer (⚠).
 
 ## Requirements
 
