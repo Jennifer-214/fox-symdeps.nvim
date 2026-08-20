@@ -25,6 +25,14 @@ local h = U.fuzzy_pick({ title = "t", items = items,
   on_choice = function(c) picked = c; called = true end })
 ok(type(h) == "table" and h.is_open(), "LIVE static: picker opens and returns its handle")
 ok(floats() == 2, "LIVE static: prompt + results floats are both up")
+-- BROWSE-FIRST: a static picker opens in NORMAL mode with the browse keys bound (no typing needed)
+ok(vim.api.nvim_get_mode().mode == "n", "LIVE static: opens in browse (normal) mode — typing optional")
+local has_j, has_i = false, false
+for _, m in ipairs(vim.api.nvim_buf_get_keymap(vim.api.nvim_get_current_buf(), "n")) do
+  if m.lhs == "j" then has_j = true end
+  if m.lhs == "i" then has_i = true end
+end
+ok(has_j and has_i, "LIVE static: browse keys bound (j moves, i enters the filter)")
 h.set_query("bet")
 h.confirm()
 vim.wait(3000, function() return called end, 50)

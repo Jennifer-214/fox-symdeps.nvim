@@ -162,7 +162,12 @@ function M._fuzzy_filter(items, query, format)
 end
 
 -- fuzzy_pick(opts): opts = { title?, items? | live(query, update)?, format(item)→string?,
--- on_choice(item|nil), palette?, hint? }. on_choice(nil) = cancelled.
+-- on_choice(item|nil), palette?, hint?, start? }. on_choice(nil) = cancelled.
+-- BROWSE-FIRST (operator 2026-08-19: "i just dont wanna have to type anything when browsing
+-- tags and stuff"): static pickers open in NORMAL mode — j/k move, <CR>/l picks, q/<Esc>
+-- cancels, and i / / / a drop into the filter only when wanted; <Esc> in the filter returns
+-- to browsing (filter kept), <C-c> cancels outright. Live pickers (roam) default to the
+-- filter — they are queries by nature. opts.start = "browse" | "filter" overrides.
 function M.fuzzy_pick(opts)
   opts = opts or {}
   pcall(vim.api.nvim_set_hl, 0, "FoxSymdepsFzfMatch", { default = true, link = "Special" })
@@ -278,13 +283,29 @@ function M.fuzzy_pick(opts)
                         ["<C-p>"] = -1, ["<Up>"] = -1, ["<S-Tab>"] = -1 }) do
     vim.keymap.set("i", lhs, function() move(d) end, { buffer = pbuf, nowait = true })
   end
-  vim.keymap.set("i", "<Esc>", function() close(nil) end, { buffer = pbuf, nowait = true })
+  -- filter-mode exits: <Esc> RETURNS TO BROWSE (filter kept — never a surprise close); <C-c> cancels
+  vim.keymap.set("i", "<Esc>", function() vim.cmd("stopinsert") end, { buffer = pbuf, nowait = true })
+  vim.keymap.set("i", "<C-c>", function() close(nil) end, { buffer = pbuf, nowait = true })
+  -- browse mode (normal): the menu's own muscle memory
+  for lhs, d in pairs({ j = 1, k = -1, ["<Down>"] = 1, ["<Up>"] = -1 }) do
+    vim.keymap.set("n", lhs, function() move(d) end, { buffer = pbuf, nowait = true })
+  end
+  vim.keymap.set("n", "<C-d>", function() move(5) end, { buffer = pbuf, nowait = true })
+  vim.keymap.set("n", "<C-u>", function() move(-5) end, { buffer = pbuf, nowait = true })
+  for _, k in ipairs({ "<CR>", "l" }) do
+    vim.keymap.set("n", k, confirm, { buffer = pbuf, nowait = true })
+  end
+  for _, k in ipairs({ "i", "a", "/" }) do
+    vim.keymap.set("n", k, function() vim.cmd("startinsert!") end, { buffer = pbuf, nowait = true })
+  end
   for _, k in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", k, function() close(nil) end, { buffer = pbuf, nowait = true })
   end
   vim.api.nvim_create_autocmd("WinLeave", { buffer = pbuf, once = true, callback = function() close(nil) end })
   render()
-  vim.cmd("startinsert!")
+  if (opts.start or (opts.live and "filter" or "browse")) == "filter" then
+    vim.cmd("startinsert!")
+  end
   if opts.live then refilter() end -- fire the initial (empty) live query → hint state
 
   -- programmatic handle: the SAME functions the keys map to, callable without keystrokes —
