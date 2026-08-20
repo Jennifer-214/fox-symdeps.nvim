@@ -77,6 +77,10 @@ function M._companion_symbol() -- test seam
   return P.companion and not P.companion.closed and P.companion.ctx and P.companion.ctx.symbol or nil
 end
 
+function M._companion_card() -- test seam (tissue assertions read the companion's state)
+  return P.companion and not P.companion.closed and P.companion or nil
+end
+
 function M.compare()
   if not M.is_open() then return end
   if P.companion and not P.companion.closed then
@@ -118,6 +122,41 @@ function M.compare()
     hud.attach_external_reload(P.companion, P.aug)  -- refcounted autoread handles the pair
   end
   if vim.api.nvim_win_is_valid(origin) then vim.api.nvim_set_current_win(origin) end
+
+  -- ⋈ the connective tissue (§6 — "the value is the connective tissue between them").
+  -- Computed once BOTH cards' field maps settle (bounded poll; a function card settles as
+  -- fields-none; co-includers is a sync grep so every pair gets at least the coupling line).
+  -- Rendered on the COMPANION, expanded — it is the point of comparing.
+  do
+    local main, comp = P.hud, P.companion
+    local tries = 0
+    local function attempt()
+      if not (comp and not comp.closed and main and not main.closed) then return end
+      tries = tries + 1
+      local function settled(h)
+        return (h.ctx and h.ctx.kind == "function")
+          or (h.fields and h.fields.state ~= "loading")
+      end
+      if not (settled(main) and settled(comp)) and tries < 15 then
+        return vim.defer_fn(attempt, 200)
+      end
+      local function items(h)
+        return (h.fields and h.fields.state == "ok") and h.fields.items or nil
+      end
+      local root = (main.ctx.file and vim.fs.root(main.ctx.file, { ".git", "compile_commands.json" }))
+        or vim.fn.getcwd()
+      local okt, lines = pcall(function()
+        return require("fox-symdeps.tissue").between(main.ctx, comp.ctx, items(main), items(comp), root)
+      end)
+      if okt and lines and comp and not comp.closed then
+        comp.between = lines
+        comp.sec_collapsed = comp.sec_collapsed or {}
+        if comp.sec_collapsed.between == nil then comp.sec_collapsed.between = false end
+        comp:render()
+      end
+    end
+    vim.defer_fn(attempt, 250)
+  end
 end
 
 function M.switch(delta)

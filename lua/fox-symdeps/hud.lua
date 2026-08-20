@@ -221,6 +221,7 @@ function Hud:reset(ctx)
     pcall(vim.keymap.del, "n", key, { buffer = self.buf })
   end
   self._lens_keys = {}
+  self.between = nil -- compare tissue: never inherited across a card swap
   self.composition = nil -- W22: cleared on struct switch, refilled by set_composition
   self.uses = nil -- upstream deps; cleared on struct switch, refilled by set_uses
   self.includers = nil -- files that #include the header; cleared on switch, refilled by set_includers
@@ -642,6 +643,15 @@ function Hud:render()
   for _, sec in ipairs(self.sections or {}) do
     if sec.state == "ok" and sec.tree == nil then
       add(" " .. sec.label, "FoxSymdepsHeader")
+      add("")
+    end
+  end
+
+  -- ⋈ Between (compare tissue, §6) — set by panel.compare on the COMPANION card only;
+  -- expanded by default there (it is the point of comparing; panel seeds the fold state).
+  if self.between and #self.between > 0 then
+    if sec_header("between", "⋈ Between (compare)") then
+      for _, l in ipairs(self.between) do add("   " .. l, "FoxSymdepsBadge") end
       add("")
     end
   end
