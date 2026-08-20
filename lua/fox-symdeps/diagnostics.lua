@@ -98,9 +98,21 @@ function M.toggle()
       if vim.api.nvim_buf_is_valid(b) then vim.diagnostic.reset(NS, b) end
     end
     by_buf = {}
+    return require("fox-symdeps.ui").notify_raw("fox-symdeps · straddle diagnostics off", vim.log.levels.INFO)
   end
-  require("fox-symdeps.ui").notify_raw("fox-symdeps · straddle diagnostics " ..
-    (M.enabled and "ON (inspect a struct to populate)" or "off"), vim.log.levels.INFO)
+  -- ONE-STEP (census 2026-08-18 row-17: the toggle used to say "inspect a struct to populate"
+  -- and then wait for a second action): a struct enclosing the cursor populates NOW via the
+  -- same fields producer the HUD feeds struct_layout from. Elsewhere the old contract stands —
+  -- every later inspect adds its struct's group.
+  local okc, ctx = pcall(function() return require("fox-symdeps.tagcontext").resolve() end)
+  if okc and ctx and ctx.kind ~= "function" then
+    require("fox-symdeps.layout").fields(ctx, function(items, state)
+      if state == "ok" then M.struct_layout(ctx, items) end
+    end)
+    return require("fox-symdeps.ui").notify_raw(("fox-symdeps · straddle diagnostics ON — populating from %s (inspecting other structs adds them)")
+      :format(ctx.symbol or "the unit at the cursor"), vim.log.levels.INFO)
+  end
+  require("fox-symdeps.ui").notify_raw("fox-symdeps · straddle diagnostics ON (inspect a struct to populate)", vim.log.levels.INFO)
 end
 
 return M

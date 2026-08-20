@@ -362,6 +362,7 @@ local function sidecars(root)
   end
   return M.sweep_order(cars)
 end
+M.sidecars = sidecars -- shared with branchtag (ONE sidecar discovery, never a second glob)
 
 -- rg the symbol across all sidecars (ONE subprocess); Lua filters to definition headers via the
 -- shared rule. cb({ [sidecar_path] = { {lnum, header}, … } }, callsites_per_path).

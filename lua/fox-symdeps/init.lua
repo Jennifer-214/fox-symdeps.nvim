@@ -233,7 +233,7 @@ function M._keymap_spec()
     { lhs = "<leader>ds", hint = "SHIPPED asm (1:1)", action_id = "asm-shipped", fn = function() require("fox-symdeps.asmshipped").open(M.config.palette) end,
       desc = "fox-symdeps: shipped asm — the function's code in the ACTUAL binary (build.sh asm sidecars; honest inlined-away)" },
     { lhs = "<leader>db", hint = "branch tags", action_id = "branch-tags", fn = function() require("fox-symdeps.branchtag").toggle() end,
-      desc = "fox-symdeps: inline data-dependent branch tags (▲, non-destructive)" },
+      desc = "fox-symdeps: inline data-dependent branch tags (▲, shipped-asm basis, non-destructive)" },
     { lhs = "<leader>du", hint = "use-lens", menu = "Toggle the in-code use-lens (]u/[u hop)",
       fn = toggle_lens,
       desc = "fox-symdeps: use-lens (in-code tags)" },

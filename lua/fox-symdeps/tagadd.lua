@@ -64,13 +64,14 @@ function M.add(ctx)
   end
   table.sort(items, function(a, b) return a.name < b.name end)
   items[#items + 1] = { mint = true }
-  vim.ui.select(items, {
-    prompt = ("Add [TAG] to %s %s"):format(blk.type, blk.name or ""),
-    format_item = function(it)
+  ui.fuzzy_pick({
+    title = ("add [TAG] · %s %s"):format(blk.type, blk.name or ""),
+    items = items,
+    format = function(it)
       if it.mint then return "＋ mint NEW vocab (SSoT: tools/add_vocab.py — never plugin-local)" end
       return ("%s   (%s)"):format(it.name, it.axis)
     end,
-  }, function(choice)
+    on_choice = function(choice)
     if not choice then return end
     if choice.mint then
       return ui.notify_raw("mint vocab via the SSoT: python3 tools/add_vocab.py "
@@ -89,7 +90,8 @@ function M.add(ctx)
     vim.api.nvim_buf_set_lines(buf, abs, abs + 1, false, { merged })
     ui.notify_raw(("TAG ADD ✎ %s + [%s]  (buffer edited — save to keep)")
       :format(blk.name or "unit", choice.name), vim.log.levels.INFO)
-  end)
+    end,
+  })
 end
 
 return M

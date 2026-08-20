@@ -15,5 +15,13 @@ ok(A.note(4096).hl == "FoxSymdepsBadge", ">256 B is plain")
 ok(A.note(4096).text:find("64 cache lines", 1, true), "4096 B = 64 cache lines")
 ok(A.note(128).text:find("128 B", 1, true), "size echoed in the tag")
 
+-- the unresolved-template chip: never silent, never a fake size — dim, named, names the fix
+local t = A.template_note("ExecutionCore")
+ok(t.hl == "FoxSymdepsDim", "template chip is dim, not a verdict color")
+ok(t.text:find("ExecutionCore <T>", 1, true), "template chip names the symbol + <T>")
+ok(t.text:find("template_args", 1, true), "template chip names the fix (template_args)")
+ok(not t.text:find("%d+ B"), "template chip never claims a byte size")
+ok(A.template_note(nil).text:find("?", 1, true), "nil symbol degrades to ?")
+
 io.write(("test_ambient: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

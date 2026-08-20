@@ -1,52 +1,66 @@
 # fox-symdeps.nvim
 
-A symbol-intelligence HUD for C++. Put the cursor on a struct or function, press
+A symbol-intelligence HUD for C++. Put the cursor in a struct or function, press
 `<leader>dd`, and a calm float shows what the compiler actually knows about it — memory
-layout, cache-line packing, and a role-classified map of what depends on it.
+layout, cache-line packing, shipped assembly, and a role-classified map of what depends on it.
 
-Ground truth from your toolchain (clangd + treesitter), not a guess. C++-only.
+Ground truth from your toolchain (clangd + treesitter + the foxtag tag system + the build's own
+asm sidecars), not a guess. C++-only.
 
 ## What it shows
 
-For the symbol under the cursor (`<leader>dd` float or `<leader>dD` panel):
+For the unit at the cursor — anywhere inside it, not only on its name (tag-block resolution):
 
 **Types / structs**
 - **Layout** — size · alignment · how it sits across 64 B cache lines · which vector register it fits.
-- **Fields** — per-field cache-line map: offset, size, line, straddle flags, padding gaps.
-- **Uses** — the distinct types this struct depends on (upstream), each jumpable to its definition.
-- **Contains** — recursive composition, all the way down.
-- **Consumers** — references classified by role: input / returned / embedded / instantiated / byte (sizeof).
-- **🎯 size-budget** — if the struct is cache-residency-gated (from a size-budget manifest), its tier.
+- **Fields** — per-field cache-line map: offset, size, line, straddle flags, padding gaps; a visual
+  **byte map** on wide windows; **register-fit** per field (single-`mov` vs shift/mask, both costs shown).
+- **Uses / Contains / Includers** — upstream types · recursive composition · who `#include`s the header.
+- **Consumers** — references classified by role, each entry resolved to its ENCLOSING tagged unit
+  with its `[TAG]` list; filterable by text (`/`) or by tag (`T`).
+- **▣ size-budget** — if the struct is cache-residency-gated, its tier.
 
 **Functions**
-- **Called by** + **→ Calls** — both call directions (real call hierarchy, not textual mentions).
-- **Call trace** — transitive callers.
-- **🔥 hot-path** — if it's latency-critical, its compiled instruction budget.
+- **Called by** + **→ Calls** + transitive **Call trace** (real call hierarchy, not textual mentions).
+- **SHIPPED asm** — the function in the ACTUAL linked binary (1:1 objdump sidecar, never a re-compile):
+  instruction/SIMD/budget chips, ▲ branch-class marks, inline attribution, call-follow, source↔asm sync.
+- **Branch tags** (source overlay, shipped basis) — per line: `▲ data-dependent branch` ·
+  `△ branch (reg/loop)` · `✓ branchless (cmov)` · the feeding LOAD flagged on its own line; per
+  function: a green/red/dim verdict that never greens on nothing.
+- **◈ hot-path** — if it's latency-critical, its compiled instruction budget.
 
-**On-demand** (press the key — discoverable in the footer and in `?`):
-- `s` false-sharing · `m` who-writes-this-field · `n` doc mentions (design specs / invariants) ·
-  `c` change-impact (what a size change breaks downstream, **loud vs silent**) · `b` break-check ·
-  `a` asm flag-diff · `w` width-literal scan · `r` refresh.
+**Docs** — the curated `◆ Docs` section lists the `[REFERENCE]` ids that govern the unit; the
+doc viewer floats the defining doc beside the code (pin it with `p`).
 
-**Project-specific** (self-gates on the tool being present): a **byte-layout blast radius** cascade
-— embedders + `sizeof`/`fwrite`/`memcmp` enforcement sites via `gen_code_map`, with an auto
-break-check that lights up broken `static_assert`s across files when a struct changes.
+## Surfaces
 
-It's a picker: `j`/`k` snap between entries, `l`/`h` expand/fold, `<CR>` jumps.
+One fetch engine, several presentations — all reachable from **the root menu** (`<leader>dm`):
+
+- **Float HUD** — transient, point-at-a-thing (`<leader>dd`).
+- **Follow card** — auto-follows the enclosing unit as you move (`<leader>df`); the cockpit docks it.
+- **Board** — persistent, multi-card, explicit-add (`<leader>dD` ADDS a card; it accumulates,
+  never replaces); side-by-side **compare** from in-board.
+- **Graph-walk** — in any card, `f` drills into the selected tree entry's unit (breadcrumb in the
+  title, `<C-t>` walks back); `L` opens the entry's unit as a board card beside you.
+- **Pickers** — browse structs, browse units by `[TAG]`, roam any workspace symbol, TAG ADD from
+  the vocab: one fuzzy popup, **browse-first** (j/k immediately, typing is the optional filter).
+- **Dashboard** — whole-project risks; **Output log** — every notification, newest first (`<leader>dn`).
 
 ## Requirements
 
 - Neovim 0.11+ (developed on 0.12). Uses `vim.lsp`, `vim.treesitter`, `vim.uv`.
 - `clangd` on `PATH`, attached to the buffer — a `compile_commands.json` in or above the project.
+- For shipped-asm surfaces: the build's asm sidecars (`./build.sh` emits `build*/asm/*.asm`).
 - Optional: `which-key.nvim` (group label) and `neo-tree.nvim` (consumer-count tree badges). Both harmless if absent.
 
 ## Install
 
-lazy.nvim:
+lazy.nvim (private local plugin — point `dir` at the checkout):
 
 ```lua
 {
-  "Jennyfirrr/fox-symdeps.nvim",
+  dir = vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim"),
+  name = "fox-symdeps",
   ft = { "c", "cpp" },
   opts = {
     -- key     = "<leader>dd",  -- trigger (default)
@@ -58,35 +72,22 @@ lazy.nvim:
 }
 ```
 
-Wiring it into a theme that already has a palette (pass your own tokens; private local plugin,
-so point `dir` at the checkout):
-
-```lua
-{
-  dir = vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim"),
-  name = "fox-symdeps",
-  ft = { "c", "cpp" },
-  opts = { palette = { header = P.peach, title = P.blush, border = P.peach,
-                       badge = P.warm, selection = P.sel } },
-}
-```
-
 ## Usage
 
 **The action menu is the root surface** — `<leader>dm` (or `m` inside any HUD) reaches EVERY
 operation: the unit-scoped analyses (type/context-gated) plus the global launchers, with ✎/⚠
 write-tier icons. Keybinds are shortcuts into it. The full, always-current key list lives in
-`?` inside any surface — it derives from the keymap registry, so this README no longer
-hand-copies it (it had drifted twice).
+`?` inside any surface — it derives from the keymap registry, so this README doesn't
+hand-copy it (it had drifted twice before that rule).
 
 - `<leader>dd` — float HUD on the unit at cursor · `<leader>dm` — the action menu
-- In the HUD: `j`/`k` select · `l`/`h` expand/fold · `<CR>` jump (`<C-o>` back) · `/` filter ·
-  `?` all keys + glossary · `q`/`<Esc>` close · `m` menu
+- In a card: `j`/`k` select · `l`/`h` expand/fold · `<CR>` jump (`<C-o>` back) · `f` drill /
+  `<C-t>` back · `/` filter · `T` tag-filter · `?` all keys + glossary · `q` close · `m` menu
 
 ### Config
 
-`opts.palette` (theme tokens — see Install above) — optional. (`opts.doc_dirs` retired with the
-`n` mention-sweep lens, 2026-08-10: the curated `◆ Docs` section + `m → Docs` supersede it.)
+`opts.palette` (theme tokens — see Install above) and `opts.template_args` (canonical
+instantiations for template units, so size/asm probes resolve `Foo<N>`) — both optional.
 
 ## Health
 
@@ -94,8 +95,8 @@ hand-copies it (it had drifted twice).
 :checkhealth fox-symdeps
 ```
 
-Checks `clangd` on `PATH`, a client attached, a reachable `compile_commands.json`, and the
-optional which-key / neo-tree integrations.
+Checks `clangd` on `PATH`, a client attached, a reachable `compile_commands.json`, the doc-viewer
+resolver chain, and the optional which-key / neo-tree integrations.
 
 ## Testing
 
@@ -103,10 +104,12 @@ optional which-key / neo-tree integrations.
 make test          # or:  bash tests/run.sh
 ```
 
-Runs the full headless suite (`tests/test_*.lua`, 21 tests). The runner puts the cpp treesitter
-parser on the runtimepath so the treesitter-based tests (classify, compose, write-detection) run —
-a bare `nvim --clean` has none. Pure-logic tests (byte-map, false-sharing risk, parsers) need no
-parser and run anywhere. A failing test prints its tail; exit code is non-zero on any failure.
+Runs the full headless suite (`tests/test_*.lua` — the runner prints the count). Two tiers, by
+rule: **pure tests** for the logic, and **`test_*_live.lua` members that drive the REAL path**
+(fixture trees on disk, real subprocess spawns, real windows/extmarks) — because a green pure
+suite once shipped a dead feature across a subprocess seam nothing crossed. No feature is done
+without its live path exercised (see `DOCS/DECISIONS.md` § live-path verification). The runner
+puts the cpp treesitter parser on the runtimepath; pure-logic tests run anywhere.
 
 ## Theming
 
@@ -116,16 +119,17 @@ terminal's opacity), and highlights re-apply on `ColorScheme`.
 
 ## Status
 
-Active personal tool. On top of the clangd + treesitter core (layout, field cache-line map,
-role-classified consumers):
+Active personal tool, dogfooded daily on an HFT engine. The pillars:
 
-- **Uses** (upstream types), **→ Calls** + **Called by**, transitive **Call trace**
-- a persistent **live panel** that reflects *external* edits — when another process (e.g. an AI
-  in a second window) writes the tracked file, the cross-file cascade + break-check re-run and a
+- the clangd + treesitter core (layout, field cache-line map, role-classified consumers)
+- the **tag-system integration** — units resolve from `[TYPE]`…`[END_TYPE]` blocks anywhere in
+  the body; trees are tag-enriched + tag-filterable; TAG ADD merges vocab; `[REFERENCE]` docs float
+- the **shipped-asm truth surface** — 1:1 sidecar cards, branch taxonomy overlay, register-fit
+- a persistent **live board** that reflects *external* edits — when another process (e.g. an AI
+  in a second window) writes the tracked file, the cascade + break-check re-run and a
   `sizeof` delta alerts (the co-programming loop)
-- **byte-layout blast radius** cascade with an auto break-check (what a minor change broke, cross-file)
-- on-demand lenses: `s` false-sharing · `b` break-check · `m` who-writes · `n` doc-notes
-- a **hot-path** instruction-budget readout, a keybind-hint footer, and a `?` help/glossary float
+- **byte-layout blast radius** cascade with an auto break-check (what a change broke, cross-file)
+- the **graph-walk**: every dependency tree is a browsable graph, drill in / walk back
 
 Extensible: drop a `lenses/*.lua` file that self-registers via `lens.define` — see
 `lenses/_TEMPLATE.lua.txt`.

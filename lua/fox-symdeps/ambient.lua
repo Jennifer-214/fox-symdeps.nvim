@@ -20,26 +20,45 @@ function M.note(size)
   return { text = ("◇ %d B · %d cache lines"):format(size, lines), hl = "FoxSymdepsBadge" }
 end
 
+-- pure: the unresolved-template chip (census 2026-08-18, row-17 residue: the lens went SILENT
+-- on templates — status.lua's chip says `<T>`, the ambient tag said nothing). Honest, dim,
+-- and it names the fix (the template_args knob resolves a canonical instantiation).
+function M.template_note(symbol)
+  return { text = ("◇ %s <T> · template — no concrete size (set template_args)"):format(symbol or "?"),
+           hl = "FoxSymdepsDim" }
+end
+
 local function update()
   if not M.enabled then return end
   local buf = vim.api.nvim_get_current_buf()
-  vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
   local ok, ctx = pcall(function() return require("fox-symdeps.context").under_cursor() end)
-  if not ok or not ctx or ctx.kind == "function" then return end
+  if not ok or not ctx or ctx.kind == "function" then
+    return vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1) -- off a struct: clearing IS the paint
+  end
   local line = (ctx.line or 1) - 1
   require("fox-symdeps.clangd").layout(ctx, function(data, state)
-    if not M.enabled or state ~= "ok" or not data or not data.size then return end
-    if not vim.api.nvim_buf_is_valid(buf) then return end
-    local n = M.note(data.size)
-    pcall(vim.api.nvim_buf_set_extmark, buf, NS, line, 0, {
-      virt_text = { { "  " .. n.text, n.hl } }, virt_text_pos = M.pos,
-    })
+    if not (M.enabled and vim.api.nvim_buf_is_valid(buf)) then return end
+    -- swap old→new in ONE paint inside the callback — the old clear-first-then-async-repaint
+    -- blinked the chip on every CursorHold (census row-17 flicker residue)
+    vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
+    local n
+    if state == "ok" and data and data.size then
+      n = M.note(data.size)
+    elseif state == "ok" and data and data.is_template then
+      n = M.template_note(ctx.symbol)
+    end
+    if n then
+      pcall(vim.api.nvim_buf_set_extmark, buf, NS, line, 0, {
+        virt_text = { { "  " .. n.text, n.hl } }, virt_text_pos = M.pos,
+      })
+    end
   end)
 end
 
 function M.toggle()
   M.enabled = not M.enabled
   if M.enabled then
+    pcall(vim.api.nvim_set_hl, 0, "FoxSymdepsDim", { default = true, link = "Comment" })
     aug = vim.api.nvim_create_augroup("FoxSymdepsAmbient", { clear = true })
     vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, { group = aug, callback = update })
     update()

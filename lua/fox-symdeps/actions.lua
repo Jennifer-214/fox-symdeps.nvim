@@ -18,10 +18,21 @@ local function bless_term(cmd)
   vim.api.nvim_create_autocmd("TermClose", {
     buffer = buf, once = true,
     callback = function()
-      vim.schedule(function() pcall(vim.api.nvim_win_close, win, true) end)
+      vim.schedule(function()
+        pcall(vim.api.nvim_win_close, win, true)
+        vim.cmd("silent! checktime") -- the flow may have written files on DISK — re-sync open buffers
+      end)
     end,
   })
   vim.cmd("startinsert")
+end
+
+-- the LIVE CARD a walk row acts on: the invoking HUD (menu opened with m inside a card), else
+-- the board's visible card (menu opened with dm anywhere while the board is up), else nil.
+function M._live_card(ctx)
+  if ctx and ctx.hud and not ctx.hud.closed then return ctx.hud end
+  local ok, panel = pcall(require, "fox-symdeps.panel")
+  return ok and panel.card and panel.card() or nil
 end
 
 -- `all = true` → every unit type. Else `types = { ["function"]=true, struct=true, … }` — the
@@ -100,8 +111,24 @@ M.registry = {
     run = function() require("fox-symdeps.asmexplorer").open(pal()) end },
   { id = "asm-shipped", label = "SHIPPED asm — this function in the ACTUAL binary (1:1 sidecar)", types = { ["function"] = true },
     run = function() require("fox-symdeps.asmshipped").open(pal()) end },
-  { id = "branch-tags", label = "Branch tags (data-dependent ▲)", types = { ["function"] = true },
+  { id = "branch-tags", label = "Branch tags (data-dependent ▲, shipped asm)", types = { ["function"] = true },
     run = function() require("fox-symdeps.branchtag").toggle() end },
+  -- graph-walk rows (menu-as-root — operator 2026-08-19: "should be accessible by leader dm").
+  -- Gated on a LIVE CARD: the invoking HUD (m inside a card) or the board's visible card (dm
+  -- anywhere while the board is up). They run the SAME verbs the f/<C-t>/L keys map to.
+  { id = "walk-drill", label = "Walk — drill into the SELECTED tree entry (re-roots the card)", all = true,
+    keep_stack = true,
+    when = function(ctx) return M._live_card(ctx) ~= nil end,
+    run = function(ctx) local h = M._live_card(ctx); if h then h:_drill() end end },
+  { id = "walk-back", label = "Walk — back along the drill trail", all = true, keep_stack = true,
+    when = function(ctx)
+      local h = M._live_card(ctx)
+      return h ~= nil and h.trail ~= nil and #h.trail > 0
+    end,
+    run = function(ctx) local h = M._live_card(ctx); if h then h:_back() end end },
+  { id = "walk-beside", label = "Walk — open the selected entry's unit as a board card", all = true,
+    when = function(ctx) return M._live_card(ctx) ~= nil end,
+    run = function(ctx) local h = M._live_card(ctx); if h then h:_open_beside() end end },
   -- struct
   { id = "diagnostics", label = "Cache-straddle diagnostics", types = { struct = true },
     run = function() require("fox-symdeps.diagnostics").toggle() end },
@@ -122,6 +149,13 @@ M.registry = {
     run = function() bless_term("python3 tools/check_latency_path_conformance.py --update-budgets") end },
   { id = "bless-golden", label = "Bless — goldens console (terminal: bless.py --console)", all = true,
     run = function() bless_term("python3 tools/bless.py --console") end },
+  -- the D-372 loop ("invoke the producers to REFRESH DERIVED in place"), layout axis: the
+  -- cache-gate's own writer, corpus-wide, in an in-editor terminal (output visible; buffers
+  -- re-sync at TermClose). Batch tool, no confirm gate — it writes the [DERIVED] layout
+  -- quartet (SIZE/ALIGN/CACHE_LINES/STRADDLE) as tag-comments, idempotent.
+  { id = "layout-refresh", label = "Refresh [DERIVED] layout facts — cache-gate --fix (terminal)", all = true,
+    writes = "comments",
+    run = function() bless_term("python3 tools/check_cache_layout.py --fix") end },
 }
 
 -- pure: the display label with its derived bind suffix — `bind` (launcher rows carry theirs

@@ -57,6 +57,8 @@ function M.is_open() return P.hud ~= nil and not P.hud.closed end
 
 function M.win() return M.is_open() and P.hud.win or nil end
 
+function M.card() return M.is_open() and P.hud or nil end -- the visible card's Hud (walk rows ride it)
+
 -- ── COMPARE (§6 dual-panel, the N-card generalization's first step) ─────────────────────────
 -- `s` in-board toggles a COMPANION strip showing another card side-by-side with the visible one
 -- ("when there's room, show TWO units side-by-side"). v1 rules, deliberately simple: the
@@ -148,6 +150,15 @@ function M.add(palette)
     return require("fox-symdeps.ui").notify_raw("fox-symdeps · put the cursor in a tagged unit (or on a symbol) to add its card",
       vim.log.levels.INFO)
   end
+  return M.add_ctx(ctx, P.palette)
+end
+
+-- ADD an EXPLICIT ctx as a card — the seam the HUD's graph-walk rides (drill-in-panel + the §6
+-- L open-beside resolve their ctx from a TREE ENTRY, not the cursor). Same board law: open if
+-- closed, dedupe re-selects, never closes.
+function M.add_ctx(ctx, palette)
+  P.palette = palette or P.palette
+  if not ctx then return end
 
   if M.is_open() then
     P.idx = M._remember(P.cards, ctx, CARD_CAP)
