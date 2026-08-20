@@ -176,6 +176,7 @@ local RESERVED_KEYS = {
   i = true, o = true, x = true, dd = true, p = true,   -- the no-op'd guard set
   T = true,                                            -- tag-filter picker
   L = true, H = true, s = true,                        -- board layer (panel.lua)
+  f = true, ["<C-]>"] = true, ["<C-t>"] = true, ["<BS>"] = true, -- graph-walk drill/back
 }
 
 -- Register an on-demand action key (e.g. a provider's break-check on 'b'). Buffer-local so it
@@ -296,6 +297,15 @@ function Hud:_window()
   map("m", function() self:_menu() end)
   map("/", function() self:_filter() end)
   map("T", function() self:_tag_filter() end)
+  -- graph-walk (north-star §7.5 NAVIGATE, the converged Tier-1): f / <C-]> re-roots the card on
+  -- the SELECTED entry's enclosing unit (panel mode ACCUMULATES a card instead — board law);
+  -- <C-t> / <BS> pops the trail — the vim tag-stack idiom, deliberately. L (float) = the §6 key:
+  -- open the entry's unit as a board card beside you (panel.lua overrides L to next-tab in-board).
+  map("f", function() self:_drill() end)
+  map("<C-]>", function() self:_drill() end)
+  map("<C-t>", function() self:_back() end)
+  map("<BS>", function() self:_back() end)
+  map("L", function() self:_open_beside() end)
   map("?", function() self:_help() end)
   for _, k in ipairs({ "i", "o", "x", "dd", "p" }) do
     map(k, function() end)
@@ -341,6 +351,8 @@ function Hud:_help()
   vim.list_extend(lines, {
     "",
     "  Move    j/k · <C-d>/<C-u> page · l / h  expand / fold · <CR>  jump to code",
+    "  Walk    f or <C-]>  drill into the selected entry's unit (re-roots the card; breadcrumb in title)",
+    "          <C-t> / <BS>  back along the trail · L  open the entry's unit as a board card beside you",
     "  Filter  /  type-to-filter the tree · T  pick a [TAG] from a list (tags present in the tree)",
     "",
     "  Actions",
@@ -873,6 +885,107 @@ function Hud:_activate()
     vim.cmd.edit(vim.fn.fnameescape(it.loc.file))
     pcall(vim.api.nvim_win_set_cursor, 0, { it.loc.line, 0 })
     pcall(vim.cmd, "normal! zz") -- recenter the landing line
+  end
+end
+
+-- ── graph-walk (drill / back / open-beside) ──────────────────────────────────────────────────
+
+-- Resolve the SELECTED tree entry's enclosing unit to a full ctx, without disturbing the
+-- operator's view: the code window briefly visits the target (tagcontext needs a real cursor
+-- for context.under_cursor), then buffer + view are restored exactly. keepjumps/keepalt so the
+-- excursion never pollutes the jumplist or alternate file. Returns ctx | nil.
+function Hud:_target_ctx(loc)
+  local win = self:_code_win()
+  if not (win and vim.api.nvim_win_is_valid(win)) then return nil end
+  local prev_buf = vim.api.nvim_win_get_buf(win)
+  local prev_view
+  vim.api.nvim_win_call(win, function() prev_view = vim.fn.winsaveview() end)
+  local ctx
+  local ok = pcall(vim.api.nvim_win_call, win, function()
+    if vim.api.nvim_buf_get_name(0) ~= loc.file then
+      vim.cmd("keepjumps keepalt edit " .. vim.fn.fnameescape(loc.file))
+    end
+    pcall(vim.api.nvim_win_set_cursor, win, { loc.line, 0 })
+    ctx = require("fox-symdeps.tagcontext").resolve_unit()
+  end)
+  pcall(vim.api.nvim_win_call, win, function()
+    if vim.api.nvim_win_get_buf(win) ~= prev_buf and vim.api.nvim_buf_is_valid(prev_buf) then
+      vim.cmd("keepjumps keepalt buffer " .. prev_buf)
+    end
+    if prev_view then vim.fn.winrestview(prev_view) end
+  end)
+  if not ok then return nil end
+  return ctx
+end
+
+-- the float title doubles as the BREADCRUMB once a trail exists: "A ▸ B ▸ C" (panel mode's
+-- winbar is the board tab bar — owned by panel.lua, never touched here).
+function Hud:_update_crumb()
+  if self.mode ~= "float" or not (self.win and vim.api.nvim_win_is_valid(self.win)) then return end
+  local parts = {}
+  for _, c in ipairs(self.trail or {}) do parts[#parts + 1] = c.symbol or "?" end
+  parts[#parts + 1] = self.ctx.symbol or "?"
+  local crumb = table.concat(parts, " ▸ ")
+  if vim.fn.strdisplaywidth(crumb) > 46 then crumb = "… " .. crumb:sub(-44) end
+  pcall(vim.api.nvim_win_set_config, self.win,
+    { title = { { " " .. crumb .. " ", "FoxSymdepsTitle" } }, title_pos = "center" })
+end
+
+-- f / <C-]>: RE-ROOT the card on the selected entry's unit (§7.5 graph-browser). Float/follow:
+-- in place, pushing the current ctx onto the trail (<C-t> returns). Panel: the board law says
+-- accumulate, never swap-in-place — the target joins as a card.
+function Hud:_drill()
+  local ui = require("fox-symdeps.ui")
+  local it = self.items[self.sel]
+  if not (it and it.loc) then
+    return ui.notify_raw("drill: select a code-entry row first (branches expand with l)", vim.log.levels.INFO)
+  end
+  local ctx = self:_target_ctx(it.loc)
+  if not ctx then
+    return ui.notify_raw(("drill: no resolvable unit at %s:%d"):format(
+      vim.fn.fnamemodify(it.loc.file, ":t"), it.loc.line), vim.log.levels.WARN)
+  end
+  if self.mode == "panel" then
+    return require("fox-symdeps.panel").add_ctx(ctx)
+  end
+  if ctx.symbol == self.ctx.symbol then
+    return ui.notify_raw("drill: already on " .. (ctx.symbol or "?"), vim.log.levels.INFO)
+  end
+  self.trail = self.trail or {}
+  self.trail[#self.trail + 1] = self.ctx
+  self:reset(ctx)
+  require("fox-symdeps").inspect(ctx, self)
+  self:_update_crumb()
+end
+
+-- <C-t> / <BS>: pop the drill trail (the tag-stack return).
+function Hud:_back()
+  local prev = self.trail and table.remove(self.trail) or nil
+  if not prev then
+    return require("fox-symdeps.ui").notify_raw("drill: nothing to go back to", vim.log.levels.INFO)
+  end
+  self:reset(prev)
+  require("fox-symdeps").inspect(prev, self)
+  self:_update_crumb()
+end
+
+-- L (float): the §6 key — open the selected entry's unit as a BOARD card beside you; the float
+-- collapses (layer-stack: a new top surface collapses its ancestors) and focus returns to code.
+function Hud:_open_beside()
+  local ui = require("fox-symdeps.ui")
+  local it = self.items[self.sel]
+  if not (it and it.loc) then
+    return ui.notify_raw("open-beside: select a code-entry row first", vim.log.levels.INFO)
+  end
+  local ctx = self:_target_ctx(it.loc)
+  if not ctx then
+    return ui.notify_raw(("open-beside: no resolvable unit at %s:%d"):format(
+      vim.fn.fnamemodify(it.loc.file, ":t"), it.loc.line), vim.log.levels.WARN)
+  end
+  local code_win = self:_code_win()
+  require("fox-symdeps.panel").add_ctx(ctx)
+  if code_win and vim.api.nvim_win_is_valid(code_win) then
+    pcall(vim.api.nvim_set_current_win, code_win) -- "beside you": you keep working where you were
   end
 end
 
