@@ -99,6 +99,17 @@ if okc and type(cfg.title) == "table" then
 end
 ok(title:find("AlphaFn ▸ BetaFn", 1, true) ~= nil, "LIVE drill: the float title is the breadcrumb")
 
+-- ①b the walk TOOLTIP: with the selection on a drillable entry, the footer says where f goes
+inject_tree()
+ok(expand_until_leaf(), "LIVE: tree present for the tooltip check")
+h:render()
+local body = table.concat(vim.api.nvim_buf_get_lines(h.buf, 0, -1, false), "\n")
+ok(body:find("f drill→", 1, true) ~= nil, "LIVE tooltip: footer carries the f-drill hint on an entry row")
+ok(body:find("<C-t> back(1)", 1, true) ~= nil, "LIVE tooltip: the trail depth shows while a trail exists")
+-- ①c the menu reaches the walk (menu-as-root): _live_card resolves the invoking HUD
+local actions = require("fox-symdeps.actions")
+ok(actions._live_card({ hud = h }) == h, "LIVE menu: _live_card resolves the invoking HUD for the walk rows")
+
 -- ② back: pops to AlphaFn, trail empty
 h:_back()
 ok(h.ctx and h.ctx.symbol == "AlphaFn" and #h.trail == 0, "LIVE back: trail pops to AlphaFn")

@@ -605,10 +605,12 @@ function Hud:render()
                          and ("  [" .. table.concat(u.tags, " ") .. "]") or ""
             tail = ("%s%s  :%d"):format(u.name, tags, e.line)
           end
+          -- loc carries the resolved unit NAME so the footer's walk hint can say where f goes
+          local loc = { file = file.file, line = e.line, unit = u and u.name }
           if e.broken then
-            add_leaf("     ▲   " .. tail, { file = file.file, line = e.line }, "FoxSymdepsAlarm", true)
+            add_leaf("     ▲   " .. tail, loc, "FoxSymdepsAlarm", true)
           else
-            add_leaf("         " .. tail, { file = file.file, line = e.line })
+            add_leaf("         " .. tail, loc)
           end
         end
       end
@@ -812,6 +814,17 @@ function Hud:render()
   -- never runs off the edge (it overflowed the float and got badly cut in the narrower panel).
   do
     local parts = {}
+    -- selection-aware WALK hint (operator 2026-08-19: the graph-walk "needs a tooltip"): when
+    -- the selection sits on a drillable entry, say exactly where f goes — the affordance is
+    -- visible at the moment it applies, never memorized.
+    local cur = self.items[math.max(1, math.min(math.max(#self.items, 1), self.sel))]
+    if cur and cur.kind == "entry" and cur.loc then
+      parts[#parts + 1] = ("f drill→%s"):format(cur.loc.unit or vim.fn.fnamemodify(cur.loc.file, ":t"))
+      parts[#parts + 1] = "L beside"
+    end
+    if self.trail and #self.trail > 0 then
+      parts[#parts + 1] = ("<C-t> back(%d)"):format(#self.trail)
+    end
     for _, h in ipairs(self.action_hints or {}) do parts[#parts + 1] = h.key .. " " .. h.desc end
     if self.ctx.kind == "function" then parts[#parts + 1] = "a asm" else parts[#parts + 1] = "w width-lits" end
     parts[#parts + 1] = "m menu"; parts[#parts + 1] = "r refresh"; parts[#parts + 1] = "Q qf"; parts[#parts + 1] = "y yank"; parts[#parts + 1] = "? help"

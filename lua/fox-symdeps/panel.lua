@@ -57,6 +57,8 @@ function M.is_open() return P.hud ~= nil and not P.hud.closed end
 
 function M.win() return M.is_open() and P.hud.win or nil end
 
+function M.card() return M.is_open() and P.hud or nil end -- the visible card's Hud (walk rows ride it)
+
 -- ── COMPARE (§6 dual-panel, the N-card generalization's first step) ─────────────────────────
 -- `s` in-board toggles a COMPANION strip showing another card side-by-side with the visible one
 -- ("when there's room, show TWO units side-by-side"). v1 rules, deliberately simple: the
