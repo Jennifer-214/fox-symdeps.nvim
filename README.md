@@ -39,7 +39,9 @@ One fetch engine, several presentations — all reachable from **the root menu**
 - **Float HUD** — transient, point-at-a-thing (`<leader>dd`).
 - **Follow card** — auto-follows the enclosing unit as you move (`<leader>df`); the cockpit docks it.
 - **Board** — persistent, multi-card, explicit-add (`<leader>dD` ADDS a card; it accumulates,
-  never replaces); side-by-side **compare** from in-board.
+  never replaces); side-by-side **compare** from in-board, with the **⋈ Between** section on
+  the companion: does one embed the other (which parent cache lines it occupies, straddle
+  flagged), and which files include both — the pair's connective tissue, not just two panes.
 - **Graph-walk** — in any card, `f` drills into the selected tree entry's unit (breadcrumb in the
   title, `<C-t>` walks back); `L` opens the entry's unit as a board card beside you.
 - **Pickers** — browse structs, browse units by `[TAG]`, roam any workspace symbol, TAG ADD from
