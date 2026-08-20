@@ -43,18 +43,54 @@ function M.parse_shipped(lines, src_abs)
   return instrs, srclines
 end
 
--- pure: sorted, de-duped source lines that carry a data-dependent branch.
-function M.data_lines(instrs, srclines)
-  local det = asmdiff.classify_branches(instrs).details or {}
-  local seen, out = {}, {}
-  for _, d in ipairs(det) do
-    if d.data then
-      local ln = srclines[d.idx]
-      if ln and ln > 0 and not seen[ln] then seen[ln] = true; out[#out + 1] = ln end
+-- pure: per-line classification of every branch-shaped construct (operator asks 2026-08-18:
+-- "show branchless ones as well" + "flag the statement AND the thing that's data dependent").
+-- Returns sorted, de-duped line lists:
+--   data    — lines with a data-dependent conditional branch (▲, the mispredict risk)
+--   benign  — lines whose conditionals compare only registers/constants (△, loop bounds etc.)
+--   cmov    — lines the compiler compiled BRANCHLESS via conditional moves (✓, the good codegen)
+--   feeders — { {ln, branch}, … }: the MEMORY LOAD's line when it differs from its branch's
+--             line — the "thing that's data dependent", flagged at its own statement
+-- Precedence per line: data > benign > cmov (one chip per line); a feeder mark never lands on
+-- a line that already carries a chip.
+function M.line_classes(instrs, srclines)
+  local bc = asmdiff.classify_branches(instrs)
+  local data, benign, cmovl, feed = {}, {}, {}, {}
+  for _, d in ipairs(bc.details or {}) do
+    local ln = srclines[d.idx]
+    if ln and ln > 0 then
+      if d.data then
+        data[ln] = true
+        local fl = d.feeder and srclines[d.feeder]
+        if fl and fl > 0 and fl ~= ln then feed[fl] = feed[fl] or ln end
+      else
+        benign[ln] = true
+      end
     end
   end
-  table.sort(out)
+  for _, i in ipairs(bc.cmovs or {}) do
+    local ln = srclines[i]
+    if ln and ln > 0 then cmovl[ln] = true end
+  end
+  local out = { data = {}, benign = {}, cmov = {}, feeders = {} }
+  for ln in pairs(data) do out.data[#out.data + 1] = ln end
+  for ln in pairs(benign) do if not data[ln] then out.benign[#out.benign + 1] = ln end end
+  for ln in pairs(cmovl) do
+    if not data[ln] and not benign[ln] then out.cmov[#out.cmov + 1] = ln end
+  end
+  for ln, br in pairs(feed) do
+    if not (data[ln] or benign[ln] or cmovl[ln]) then
+      out.feeders[#out.feeders + 1] = { ln = ln, branch = br }
+    end
+  end
+  table.sort(out.data); table.sort(out.benign); table.sort(out.cmov)
+  table.sort(out.feeders, function(a, b) return a.ln < b.ln end)
   return out
+end
+
+-- back-compat seam (older tests + any external caller): just the ▲ lines.
+function M.data_lines(instrs, srclines)
+  return M.line_classes(instrs, srclines).data
 end
 
 -- pure: per-function branch verdict. fns = { {lo, hi, sig}, ... } (1-based source ranges + the
@@ -66,7 +102,8 @@ end
 -- fully inlined-away; RC-E law: never green on nothing). Returns { {sig, verdict, nbr, ndata,
 -- nins}, ... }.
 function M.verdicts(instrs, srclines, fns)
-  local det = asmdiff.classify_branches(instrs).details or {}
+  local bc = asmdiff.classify_branches(instrs)
+  local det = bc.details or {}
   local out = {}
   for _, fn in ipairs(fns or {}) do
     local nins = 0
@@ -74,7 +111,7 @@ function M.verdicts(instrs, srclines, fns)
       local sl = srclines[i]
       if sl and sl >= fn.lo and sl <= fn.hi then nins = nins + 1 end
     end
-    local brl, ddl = {}, {}
+    local brl, ddl, cml = {}, {}, {}
     for _, d in ipairs(det) do
       local sl = srclines[d.idx]
       if sl and sl >= fn.lo and sl <= fn.hi then
@@ -82,11 +119,16 @@ function M.verdicts(instrs, srclines, fns)
         if d.data then ddl[sl] = true end
       end
     end
-    local nbr, ndata = vim.tbl_count(brl), vim.tbl_count(ddl)
+    for _, i in ipairs(bc.cmovs or {}) do
+      local sl = srclines[i]
+      if sl and sl >= fn.lo and sl <= fn.hi then cml[sl] = true end
+    end
+    local nbr, ndata, ncmov = vim.tbl_count(brl), vim.tbl_count(ddl), vim.tbl_count(cml)
     local verdict = (nins == 0) and "nocode"
       or (nbr == 0) and "branchless"
       or (ndata > 0) and "data" or "branches"
-    out[#out + 1] = { sig = fn.sig, verdict = verdict, nbr = nbr, ndata = ndata, nins = nins }
+    out[#out + 1] = { sig = fn.sig, verdict = verdict, nbr = nbr, ndata = ndata,
+                      nins = nins, ncmov = ncmov }
   end
   return out
 end
@@ -110,36 +152,44 @@ local function all_fn_ranges(bufnr)
   return out
 end
 
-local function apply(bufnr, dlines, verdicts)
+local function apply(bufnr, classes, verdicts)
   if not (M.enabled and vim.api.nvim_buf_is_valid(bufnr)) then return end
   pcall(vim.api.nvim_set_hl, 0, "FoxSymdepsDim", { default = true, link = "Comment" })
   vim.api.nvim_buf_clear_namespace(bufnr, NS, 0, -1)
   local n = vim.api.nvim_buf_line_count(bufnr)
-  -- RED on each data-dependent branch line (the mispredict risk)
-  for _, ln in ipairs(dlines) do
+  local function mark(ln, text, hl)
     if ln <= n then
       pcall(vim.api.nvim_buf_set_extmark, bufnr, NS, ln - 1, 0, {
-        virt_text = { { "  ▲ data-dependent branch", "FoxSymdepsAlarm" } }, virt_text_pos = "eol",
+        virt_text = { { text, hl } }, virt_text_pos = "eol",
       })
     end
+  end
+  -- per-line marks, one chip per line (precedence lives in line_classes):
+  -- ▲ the mispredict risk · △ benign reg/loop conditional · ✓ the compiler went branchless ·
+  -- · the LOAD feeding a ▲ on another line (the "thing that's data dependent", at its statement)
+  for _, ln in ipairs(classes.data or {}) do mark(ln, "  ▲ data-dependent branch", "FoxSymdepsAlarm") end
+  for _, ln in ipairs(classes.benign or {}) do mark(ln, "  △ branch (reg/loop)", "FoxSymdepsDim") end
+  for _, ln in ipairs(classes.cmov or {}) do mark(ln, "  ✓ branchless (cmov)", "FoxSymdepsOk") end
+  for _, f in ipairs(classes.feeders or {}) do
+    mark(f.ln, ("  · data source for ▲ @%d"):format(f.branch), "FoxSymdepsDim")
   end
   -- per-function verdict at the signature line. The GREEN carries its basis ("shipped") — the
   -- all-clear is the claim that must never overreach; warnings don't overclaim.
   for _, v in ipairs(verdicts or {}) do
-    if v.sig and v.sig <= n then
+    if v.sig then
       local text, hl
       if v.verdict == "nocode" then
         text, hl = "  · no shipped codegen", "FoxSymdepsDim"
       elseif v.verdict == "branchless" then
-        text, hl = "  ✓ branchless · shipped", "FoxSymdepsOk"
+        text = (v.ncmov or 0) > 0 and ("  ✓ branchless (%d cmov) · shipped"):format(v.ncmov)
+          or "  ✓ branchless · shipped"
+        hl = "FoxSymdepsOk"
       elseif v.verdict == "data" then
         text, hl = ("  ▲ %d data-dependent"):format(v.ndata), "FoxSymdepsAlarm"
       else
         text, hl = ("  ▲ %d branch line%s"):format(v.nbr, v.nbr == 1 and "" or "s"), "FoxSymdepsWarn"
       end
-      pcall(vim.api.nvim_buf_set_extmark, bufnr, NS, v.sig - 1, 0, {
-        virt_text = { { text, hl } }, virt_text_pos = "eol",
-      })
+      mark(v.sig, text, hl)
     end
   end
 end
@@ -175,8 +225,12 @@ local function refresh(bufnr)
       end)
     end
     local car = cars[i]
+    -- ⚠ the ORS escapes are DOUBLED on purpose: awk must receive backslash-n, not a real
+    -- newline (Lua interprets \n in 'single quotes' too — a real newline inside the awk
+    -- program is 'unterminated string', exit 1, and the overlay silently paints NOTHING;
+    -- operator-reported live 2026-08-18, now pinned by test_branchtag_live).
     local ok = pcall(vim.system,
-      { "awk", "-v", "P=" .. pat, 'BEGIN{RS="";ORS="\n\n"} index($0,P)', car.path },
+      { "awk", "-v", "P=" .. pat, 'BEGIN{RS="";ORS="\\n\\n"} index($0,P)', car.path },
       { text = true },
       function(res)
         if (res.code or 0) ~= 0 or (res.stdout or "") == "" then return try(i + 1) end
@@ -186,17 +240,29 @@ local function refresh(bufnr)
           local attributed = 0
           for _, s in ipairs(srclines) do if s > 0 then attributed = attributed + 1 end end
           if attributed == 0 then return try(i + 1) end -- pre-filter hit a same-basename foreign file
-          apply(bufnr, M.data_lines(instrs, srclines), M.verdicts(instrs, srclines, all_fn_ranges(bufnr)))
+          apply(bufnr, M.line_classes(instrs, srclines), M.verdicts(instrs, srclines, all_fn_ranges(bufnr)))
           vim.b[bufnr].fox_branchtag_tick = tick
-          if vim.b[bufnr].fox_branchtag_basis ~= car.path then
+          -- staleness is a TRANSITION notify (refresh fires on every save): editing after the
+          -- build shifts functions off their shipped line spans — marks drift and small fns go
+          -- `nocode`, which reads as breakage unless the basis-lag is said out loud (measured
+          -- live 2026-08-18: two verdicts flipped between operator edits, zero code change).
+          local stale = (vim.fn.getftime(file) or 0) > (car.prov.mtime or 0)
+          if vim.b[bufnr].fox_branchtag_basis ~= car.path or vim.b[bufnr].fox_branchtag_stale ~= stale then
             vim.b[bufnr].fox_branchtag_basis = car.path
-            ui.notify_raw(("branch tags · shipped basis: %s (HEAD %s)"):format(
-              car.prov.binary or "?", car.prov.head or "?"), vim.log.levels.INFO)
+            vim.b[bufnr].fox_branchtag_stale = stale
+            ui.notify_raw(("branch tags · shipped basis: %s (HEAD %s)%s"):format(
+              car.prov.binary or "?", car.prov.head or "?",
+              stale and " — ⚠ source newer than this binary; marks may drift until ./build.sh" or ""),
+              stale and vim.log.levels.WARN or vim.log.levels.INFO)
           end
         end)
       end)
     if not ok then
-      ui.notify_raw("branch tags: could not run awk over the sidecar", vim.log.levels.WARN)
+      -- schedule: try() re-enters from vim.system's on_exit (a fast event context, where
+      -- vim.notify's echo path is not allowed)
+      vim.schedule(function()
+        ui.notify_raw("branch tags: could not run awk over the sidecar", vim.log.levels.WARN)
+      end)
     end
   end
   try(1)

@@ -70,3 +70,23 @@ auto-panel · lock-layout static_assert · ambient size lens · dashboard tiles 
 structs · cache-line straddlers) · cache-line access-density lens · source↔asm explorer (1:1,
 cursor-synced) · inline data-dependent branch tags + green/yellow/red per-function verdicts · persistent
 readable HUD errors · `:FoxSymdepsReloadAll`.
+
+## Live-path verification before "done" (operator rule, 2026-08-18)
+
+**No plugin change is done at pure-suite green.** Proven the hard way: the branchtag shipped-asm
+rework passed 47/47 while the SHIPPED feature was 100% dead — the awk program string carried
+Lua-interpreted newlines (`'\n'` in Lua single quotes is a real newline → awk "unterminated
+string", exit 1) and the overlay silently painted nothing. Every pure test and even a bash-side
+probe of the same awk program passed, because none of them crossed the Lua→subprocess seam.
+The operator caught it live within minutes.
+
+The rule: any change touching a subprocess / async / window seam ships WITH a `test_*_live.lua`
+suite member that drives the REAL path — fixture tree on disk, real spawn, real windows/extmarks
+— and "done" claims name their live evidence (the live test, or an operator dogfood). Headless
+`-l` cannot drive insert-mode typeahead (feedkeys `x!` ends the script silently), so interactive
+surfaces expose a **programmatic handle** carrying the same functions their keys map to
+(`fuzzy_pick` → `set_query`/`move`/`confirm`/`cancel`); the handle is the test seam AND the
+programmatic API. First members: `test_branchtag_live.lua` (sidecar → awk → parse → paint,
+plus never-green-on-uncovered), `test_fuzzy_live.lua` (narrow/pick/cancel/live-debounce/
+generation-guard). Sister discipline: workspace memory
+`feedback_plugin_livepath_verification_before_done` + `feedback_passing_test_is_not_verification`.

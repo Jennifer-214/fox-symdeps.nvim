@@ -286,6 +286,22 @@ function M.fuzzy_pick(opts)
   render()
   vim.cmd("startinsert!")
   if opts.live then refilter() end -- fire the initial (empty) live query → hint state
+
+  -- programmatic handle: the SAME functions the keys map to, callable without keystrokes —
+  -- the test seam (headless -l cannot drive insert-mode typeahead; test_fuzzy_live rides
+  -- this) and the hook for pre-seeded queries later. set_query writes the prompt line and
+  -- refilters exactly as typing would.
+  return {
+    set_query = function(q)
+      if closed then return end
+      local pr = vim.fn.prompt_getprompt(pbuf)
+      vim.bo[pbuf].modifiable = true
+      vim.api.nvim_buf_set_lines(pbuf, 0, -1, false, { pr .. (q or "") })
+      refilter()
+    end,
+    move = move, confirm = confirm, cancel = function() close(nil) end,
+    is_open = function() return not closed end,
+  }
 end
 
 -- ONE notification voice (operator polish #4): every plugin notification routes through here —

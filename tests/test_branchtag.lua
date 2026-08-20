@@ -72,5 +72,34 @@ ok(v4[1].verdict == "nocode" and v4[1].nins == 0, "zero attributed instructions 
 
 ok(#B.verdicts(di, ds, {}) == 0, "no functions → no verdicts")
 
+-- ── line_classes: the full per-line taxonomy (▲ data / △ benign / ✓ cmov / feeder) ──────────
+-- register choice is deliberate: the benign compare uses %ecx/%edx so the ▲'s feeder load
+-- into %rax cannot bleed into it through the classifier's 8-instruction backtrace.
+local ci = {
+  "mov    (%rdi),%rax",   -- feeder load            → L4
+  "test   %rax,%rax",     -- flag-setter, reg-only  → L5
+  "je     .L9",           -- data-dep via the trace → L5
+  "cmpl   %ecx, %edx",    --                        → L6
+  "jl     .L2",           -- benign (regs only)     → L6
+  "cmovne %rbx,%rax",     -- branchless select      → L8
+  "retq",                 --                        → L9
+}
+local cs = { 4, 5, 5, 6, 6, 8, 9 }
+local lc = B.line_classes(ci, cs)
+ok(#lc.data == 1 and lc.data[1] == 5, "line_classes: register-traced memory feed → ▲ on the branch line")
+ok(#lc.benign == 1 and lc.benign[1] == 6, "line_classes: reg/const conditional → △ benign")
+ok(#lc.cmov == 1 and lc.cmov[1] == 8, "line_classes: cmov line → ✓ branchless select")
+ok(#lc.feeders == 1 and lc.feeders[1].ln == 4 and lc.feeders[1].branch == 5,
+  "line_classes: the LOAD's line is flagged as the ▲'s data source when it differs")
+
+-- precedence: a line carrying BOTH a data branch and a cmov shows the ▲ only
+local plc = B.line_classes({ "cmpq $1, (%rdi)", "jne .L1", "cmovne %rbx,%rax" }, { 5, 5, 5 })
+ok(#plc.data == 1 and #plc.cmov == 0 and #plc.benign == 0,
+  "line_classes: data > benign > cmov precedence — one chip per line")
+
+-- ncmov reaches the verdict (the green chip says how many selects the fn shipped)
+local cv = B.verdicts({ "cmovne %rbx,%rax", "retq" }, { 3, 4 }, { { lo = 2, hi = 5, sig = 2 } })
+ok(cv[1].verdict == "branchless" and cv[1].ncmov == 1, "verdicts: branchless fn carries its cmov count")
+
 io.write(("test_branchtag: %d passed, %d failed\n"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

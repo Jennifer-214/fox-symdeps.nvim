@@ -84,14 +84,18 @@ end
 M._is_flag_setter = is_flag_setter
 M._derefs_memory = derefs_memory
 
--- pure: classify a function's conditional branches → { data, indep, cmov, total, details }. `data` =
--- the data-dependent (mispredict-risk) count; `cmov` = branchless conditional moves emitted. `details`
--- = { {idx, data}, ... } per conditional branch (idx into `lines`) so callers can map back to source.
+-- pure: classify a function's conditional branches → { data, indep, cmov, total, details, cmovs }.
+-- `data` = the data-dependent (mispredict-risk) count; `cmov` = branchless conditional moves emitted.
+-- `details` = { {idx, data, setter?, feeder?}, ... } per conditional branch (idx into `lines`):
+-- `setter` = the flag-setting instruction, `feeder` = the MEMORY instruction that makes it
+-- data-dependent (the setter itself when the compare reads memory directly; the traced mov
+-- otherwise) — so callers can flag the LOAD's source line as well as the branch's (operator ask
+-- 2026-08-18). `cmovs` = { idx, ... } of the branchless selects, for ✓ line marks.
 function M.classify_branches(lines)
-  local data, indep, cmov, details = 0, 0, 0, {}
+  local data, indep, cmov, details, cmovs = 0, 0, 0, {}, {}
   for i, l in ipairs(lines or {}) do
     local op = l:match("^(%S+)") or ""
-    if op:match("^cmov") then cmov = cmov + 1 end
+    if op:match("^cmov") then cmov = cmov + 1; cmovs[#cmovs + 1] = i end
     if COND[op] then
       local setter
       for j = i - 1, math.max(1, i - 8), -1 do
@@ -101,11 +105,11 @@ function M.classify_branches(lines)
           if jop:match("^j") or jop == "ret" or jop == "retq" then break end -- prior branch/return → stop
         end
       end
-      local dd = false
+      local dd, feeder = false, nil
       if setter then
         local sl = lines[setter]
         if derefs_memory(sl) then
-          dd = true -- the compare/test reads memory directly
+          dd, feeder = true, setter -- the compare/test reads memory directly
         else
           local want = {} -- the registers the flag-setter reads
           for r in sl:gmatch("%%(%w+)") do want[reg_core("%" .. r)] = true end
@@ -114,16 +118,16 @@ function M.classify_branches(lines)
             local kop = kl:match("^(%S+)")
             if kop and kop:match("^mov") and derefs_memory(kl) then
               local dest = kl:match("%%(%w+)%s*$") -- AT&T dest = last operand
-              if dest and want[reg_core("%" .. dest)] then dd = true; break end
+              if dest and want[reg_core("%" .. dest)] then dd, feeder = true, k; break end
             end
           end
         end
       end
       if dd then data = data + 1 else indep = indep + 1 end
-      details[#details + 1] = { idx = i, data = dd }
+      details[#details + 1] = { idx = i, data = dd, setter = setter, feeder = feeder }
     end
   end
-  return { data = data, indep = indep, cmov = cmov, total = data + indep, details = details }
+  return { data = data, indep = indep, cmov = cmov, total = data + indep, details = details, cmovs = cmovs }
 end
 
 -- pure: metrics for a function's instruction lines.
